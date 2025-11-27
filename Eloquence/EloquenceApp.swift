@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct EloquenceApp: App {
+    @StateObject private var userSession = UserSession()
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environmentObject(userSession)
         }
     }
 }

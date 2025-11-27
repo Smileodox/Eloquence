@@ -4,21 +4,18 @@
 //
 //  Created by Johannes Gruber on 10.11.25.
 //
+//  This file is deprecated in favor of RootView.swift
+//  Kept for backwards compatibility
 
 import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        RootView()
     }
 }
 
 #Preview {
     ContentView()
+        .environmentObject(UserSession())
 }

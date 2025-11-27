@@ -10,9 +10,22 @@
 		8F11B5422EC24CE500C9851D /* Eloquence.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Eloquence.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8F11B5682EC4F3CF00C9851D /* Exceptions for "Eloquence" folder in "Eloquence" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 8F11B5412EC24CE500C9851D /* Eloquence */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8F11B5442EC24CE500C9851D /* Eloquence */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8F11B5682EC4F3CF00C9851D /* Exceptions for "Eloquence" folder in "Eloquence" target */,
+			);
 			path = Eloquence;
 			sourceTree = "<group>";
 		};
@@ -256,6 +269,9 @@
 				DEVELOPMENT_TEAM = AHWMLNZLF4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Eloquence/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Eloquence needs camera access to record your practice sessions.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Eloquence needs microphone access to record audio during practice.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -288,6 +304,9 @@
 				DEVELOPMENT_TEAM = AHWMLNZLF4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Eloquence/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Eloquence needs camera access to record your practice sessions.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Eloquence needs microphone access to record audio during practice.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
