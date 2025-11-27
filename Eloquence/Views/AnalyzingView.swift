@@ -12,11 +12,20 @@ struct AnalyzingView: View {
     let videoURL: URL?
     let recordingType: RecordingType?
     let project: Project?
-    
+
+    // Add services
+    @StateObject private var audioService = AudioExtractionService()
+    @StateObject private var azureService = AzureOpenAIService()
+
     @State private var progress: CGFloat = 0
     @State private var currentStep = 0
     @State private var navigateToFeedback = false
     @State private var generatedSession: PracticeSession?
+
+    // Add error handling
+    @State private var errorMessage: String?
+    @State private var showErrorAlert = false
+    @State private var currentStepMessage = ""
     
     init(videoURL: URL? = nil, recordingType: RecordingType? = nil, project: Project? = nil) {
         self.videoURL = videoURL
@@ -51,7 +60,20 @@ struct AnalyzingView: View {
         }
         .navigationBarBackButtonHidden(true)
         .onAppear {
-            startAnalysis()
+            startRealAnalysis()
+        }
+        .alert("Analysis Error", isPresented: $showErrorAlert) {
+            Button("Try Again") {
+                progress = 0
+                currentStep = 0
+                currentStepMessage = ""
+                startRealAnalysis()
+            }
+            Button("Cancel", role: .cancel) {
+                // User can navigate back manually
+            }
+        } message: {
+            Text(errorMessage ?? "An error occurred during analysis.")
         }
     }
     
@@ -117,11 +139,11 @@ struct AnalyzingView: View {
                 .font(.system(size: 24))
                 .foregroundStyle(Color.primary)
                 .frame(width: 32)
-            
-            Text(steps[currentStep].1)
+
+            Text(currentStepMessage.isEmpty ? steps[currentStep].1 : currentStepMessage)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Color.textPrimary)
-            
+
             Spacer()
         }
         .padding(Theme.largeSpacing)
@@ -163,57 +185,107 @@ struct AnalyzingView: View {
         .padding(.horizontal, Theme.largeSpacing)
     }
     
-    private func startAnalysis() {
-        Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { timer in
-            withAnimation(.linear(duration: 0.08)) {
-                progress += 0.02
-            }
-            
-            let newStep = min(Int(progress * Double(steps.count)), steps.count - 1)
-            if newStep != currentStep {
-                withAnimation(.spring()) {
-                    currentStep = newStep
-                }
-            }
-            
-            if progress >= 1.0 {
-                timer.invalidate()
-                
-                let session = PracticeSession(
-                    date: Date(),
-                    toneScore: Int.random(in: 75...95),
-                    pacingScore: Int.random(in: 70...95),
-                    gesturesScore: Int.random(in: 70...95),
-                    feedback: generateFeedback(),
-                    recordingType: recordingType?.rawValue,
-                    projectId: project?.id
+    // MARK: - Real Analysis with Azure OpenAI
+
+    private func startRealAnalysis() {
+        guard let videoURL = videoURL else {
+            showError("No video file found. Please record a video first.")
+            return
+        }
+
+        Task {
+            do {
+                // Step 1: Extract audio from video
+                await updateStep(0, message: "Extracting audio from video...", progress: 0.2)
+                let audioURL = try await audioService.extractAudio(from: videoURL)
+
+                // Step 2: Transcribe audio with Whisper
+                await updateStep(1, message: "Transcribing speech with AI...", progress: 0.5)
+                let transcription = try await azureService.transcribeAudio(audioURL)
+
+                // Step 3: Analyze speech metrics locally
+                await updateStep(2, message: "Analyzing pace and tone...", progress: 0.7)
+                let audioDuration = try await audioService.getAudioDuration(audioURL)
+                let metrics = azureService.analyzeSpeechMetrics(
+                    transcription: transcription.text,
+                    audioDuration: audioDuration
                 )
-                
+
+                // Step 4: Generate feedback with GPT
+                await updateStep(3, message: "Generating personalized feedback...", progress: 0.9)
+                let analysis = try await azureService.generateFeedback(
+                    transcription: transcription.text,
+                    metrics: metrics
+                )
+
+                // Step 5: Complete and create session
+                await updateStep(4, message: "Analysis complete!", progress: 1.0)
+
+                // Create session from real analysis
+                let session = createSessionFromAnalysis(analysis: analysis, metrics: metrics)
+
+                // Clean up temporary audio file
+                audioService.cleanupAudioFile(audioURL)
+
                 // Link session to video file
-                if let videoURL = videoURL {
-                    let videoFileName = videoURL.lastPathComponent
-                    UserDefaults.standard.set(session.id.uuidString, forKey: "session_id_\(videoFileName)")
+                let videoFileName = videoURL.lastPathComponent
+                UserDefaults.standard.set(session.id.uuidString, forKey: "session_id_\(videoFileName)")
+
+                // Navigate to feedback
+                await MainActor.run {
+                    generatedSession = session
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        navigateToFeedback = true
+                    }
                 }
-                
-                generatedSession = session
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    navigateToFeedback = true
-                }
+
+            } catch let error as AzureAPIError {
+                await showError(error.userMessage)
+            } catch let error as AudioExtractionError {
+                await showError(error.userMessage)
+            } catch {
+                await showError("An unexpected error occurred: \(error.localizedDescription)")
             }
         }
     }
-    
-    private func generateFeedback() -> String {
-        let feedbackOptions = [
-            "Great job! Your tone was engaging and your pacing was excellent. Try to add more pauses between key points to let your audience absorb the information.",
-            "Excellent structure and enthusiasm! You maintained good eye contact and used natural gestures. Consider slowing down slightly when introducing complex topics.",
-            "Strong presentation! Your voice projection was clear and confident. Work on varying your pace more to emphasize important points.",
-            "Well done! Your body language was natural and your tone was professional. Try to incorporate more vocal variety to keep your audience engaged.",
-            "Impressive delivery! You used strategic pauses effectively. To improve further, focus on maintaining consistent energy throughout your presentation."
-        ]
-        
-        return feedbackOptions.randomElement() ?? feedbackOptions[0]
+
+    @MainActor
+    private func updateStep(_ step: Int, message: String, progress: CGFloat) {
+        withAnimation(.spring()) {
+            currentStep = step
+            currentStepMessage = message
+            self.progress = progress
+        }
+    }
+
+    @MainActor
+    private func showError(_ message: String) {
+        errorMessage = message
+        showErrorAlert = true
+    }
+
+    private func createSessionFromAnalysis(
+        analysis: GPTAnalysisResponse,
+        metrics: SpeechMetrics
+    ) -> PracticeSession {
+        // Average tone-related scores
+        let toneScore = analysis.averageToneScore
+
+        // Calculate pacing score based on WPM
+        let pacingScore = azureService.calculatePacingScore(wpm: metrics.wordsPerMinute)
+
+        // Gestures remain mock (as requested)
+        let gesturesScore = Int.random(in: 75...95)
+
+        return PracticeSession(
+            date: Date(),
+            toneScore: toneScore,
+            pacingScore: pacingScore,
+            gesturesScore: gesturesScore,
+            feedback: analysis.feedback,
+            recordingType: recordingType?.rawValue,
+            projectId: project?.id
+        )
     }
     
     private var sampleSession: PracticeSession {
