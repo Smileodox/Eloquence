@@ -172,7 +172,7 @@ class GestureAnalysisService: ObservableObject {
         let expressiveness = calculateExpressiveness(from: landmarks)
 
         // Get engagement from face quality and eye openness
-        let quality = qualityRequest.results?.first?.faceCaptureQuality ?? 0.5
+        let quality = Double(qualityRequest.results?.first?.faceCaptureQuality ?? 0.5)
         let eyeOpenness = calculateEyeOpenness(from: landmarks)
         let engagement = (quality + eyeOpenness) / 2.0
 
@@ -215,8 +215,8 @@ class GestureAnalysisService: ObservableObject {
             let rightPoints = rightEyebrow.normalizedPoints
 
             if !leftPoints.isEmpty && !rightPoints.isEmpty {
-                let leftY = leftPoints.map { $0.y }
-                let rightY = rightPoints.map { $0.y }
+                let leftY = leftPoints.map { Double($0.y) }
+                let rightY = rightPoints.map { Double($0.y) }
                 varianceSum += calculateVariance(of: leftY) + calculateVariance(of: rightY)
                 count += 2
             }
@@ -226,7 +226,7 @@ class GestureAnalysisService: ObservableObject {
         if let outerLips = landmarks.outerLips {
             let points = outerLips.normalizedPoints
             if !points.isEmpty {
-                let yValues = points.map { $0.y }
+                let yValues = points.map { Double($0.y) }
                 varianceSum += calculateVariance(of: yValues)
                 count += 1
             }
