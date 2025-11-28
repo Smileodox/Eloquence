@@ -97,6 +97,12 @@ struct GPTAnalysisResponse: Codable {
     }
 }
 
+struct GestureAnalysisResponse: Codable {
+    let gestureFeedback: String        // 2-3 sentences of gesture feedback
+    let gestureStrength: String        // Specific strength in body language
+    let gestureImprovement: String     // Specific area to improve
+}
+
 // MARK: - Error Models
 
 enum AzureAPIError: Error {

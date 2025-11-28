@@ -96,10 +96,70 @@ struct FeedbackView: View {
                             .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(Color.textPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        
+
                         ScoreCard(title: "Tone", score: session.toneScore, icon: "waveform", color: .primary)
                         ScoreCard(title: "Pacing", score: session.pacingScore, icon: "speedometer", color: .secondary)
-                        ScoreCard(title: "Gestures", score: session.gesturesScore, icon: "figure.wave", color: .info)
+
+                        // Gestures with detailed breakdown
+                        VStack(alignment: .leading, spacing: Theme.spacing) {
+                            ScoreCard(title: "Gestures", score: session.gesturesScore, icon: "figure.wave", color: .info)
+
+                            // Gesture sub-scores breakdown
+                            if session.facialScore != nil || session.postureScore != nil {
+                                DisclosureGroup {
+                                    VStack(spacing: 12) {
+                                        if let facialScore = session.facialScore {
+                                            SubScoreRow(
+                                                icon: "face.smiling",
+                                                label: "Facial Expression",
+                                                score: facialScore,
+                                                color: .info
+                                            )
+                                        }
+
+                                        if let postureScore = session.postureScore {
+                                            SubScoreRow(
+                                                icon: "figure.stand",
+                                                label: "Body Posture",
+                                                score: postureScore,
+                                                color: .info
+                                            )
+                                        }
+
+                                        // Placeholders for Phase 2
+                                        SubScoreRow(
+                                            icon: "hand.raised",
+                                            label: "Hand Gestures",
+                                            score: nil,
+                                            color: .textMuted,
+                                            placeholder: "Coming in Phase 2"
+                                        )
+
+                                        SubScoreRow(
+                                            icon: "eye",
+                                            label: "Eye Contact",
+                                            score: nil,
+                                            color: .textMuted,
+                                            placeholder: "Coming in Phase 2"
+                                        )
+                                    }
+                                    .padding(.top, 8)
+                                } label: {
+                                    HStack {
+                                        Text("View Gesture Details")
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(Color.primary)
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.down")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(Color.primary)
+                                    }
+                                }
+                                .tint(.primary)
+                            }
+                        }
                     }
                     .padding(Theme.largeSpacing)
                     .background(Color.bgLight)
@@ -242,7 +302,7 @@ struct ScoreCard: View {
     let score: Int
     let icon: String
     let color: Color
-    
+
     var body: some View {
         HStack(spacing: Theme.spacing) {
             // Icon
@@ -250,24 +310,24 @@ struct ScoreCard: View {
                 Circle()
                     .fill(color.opacity(0.2))
                     .frame(width: 50, height: 50)
-                
+
                 Image(systemName: icon)
                     .font(.system(size: 24))
                     .foregroundStyle(color)
             }
-            
+
             // Title and progress
             VStack(alignment: .leading, spacing: 8) {
                 Text(title)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.textPrimary)
-                
+
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color.border)
                             .frame(height: 8)
-                        
+
                         RoundedRectangle(cornerRadius: 4)
                             .fill(color)
                             .frame(width: geometry.size.width * CGFloat(score) / 100, height: 8)
@@ -275,12 +335,61 @@ struct ScoreCard: View {
                 }
                 .frame(height: 8)
             }
-            
+
             // Score
             Text("\(score)")
                 .font(.system(size: 24, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.textPrimary)
                 .frame(width: 50, alignment: .trailing)
+        }
+    }
+}
+
+struct SubScoreRow: View {
+    let icon: String
+    let label: String
+    let score: Int?
+    var color: Color = .info
+    var placeholder: String? = nil
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 18))
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color.textPrimary)
+
+            Spacer()
+
+            if let score = score {
+                // Progress bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.border)
+                            .frame(height: 6)
+
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(color)
+                            .frame(width: geometry.size.width * CGFloat(score) / 100, height: 6)
+                    }
+                }
+                .frame(width: 80, height: 6)
+
+                Text("\(score)")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.textPrimary)
+                    .frame(width: 35, alignment: .trailing)
+            } else if let placeholder = placeholder {
+                Text(placeholder)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+                    .italic()
+            }
         }
     }
 }

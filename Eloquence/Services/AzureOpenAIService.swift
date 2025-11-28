@@ -284,4 +284,174 @@ class AzureOpenAIService: ObservableObject {
             return Int.random(in: 50...59)
         }
     }
+
+    // MARK: - Gesture Feedback Generation
+
+    /// Generates personalized gesture feedback using Azure OpenAI GPT-5-mini
+    /// - Parameters:
+    ///   - gestureMetrics: Gesture analysis metrics from Vision Framework
+    ///   - transcription: The speech transcription for context
+    /// - Returns: Gesture-specific analysis with feedback
+    func generateGestureFeedback(
+        gestureMetrics: GestureMetrics,
+        transcription: String
+    ) async throws -> GestureAnalysisResponse {
+        // Build API endpoint
+        let urlString = config.gptURL()
+        guard let url = URL(string: urlString) else {
+            throw AzureAPIError.configurationError
+        }
+
+        // Build system prompt for gesture analysis
+        let systemPrompt = """
+        You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics provided, evaluate the speaker's facial expressions and body posture, then provide constructive coaching feedback.
+
+        Focus on:
+        - Facial expressions (smiling, engagement, expressiveness)
+        - Body posture (confidence, natural movement, stability)
+
+        Respond ONLY with valid JSON matching this exact structure (no additional text):
+        {
+          "gestureFeedback": "<2-3 sentences of personalized coaching feedback about facial expressions and posture>",
+          "gestureStrength": "<one specific strength in body language>",
+          "gestureImprovement": "<one specific area to improve in body language>"
+        }
+        """
+
+        // Build user prompt with gesture metrics
+        let facial = gestureMetrics.facialMetrics
+        let posture = gestureMetrics.postureMetrics
+
+        let userPrompt = """
+        Please analyze this speaker's body language:
+
+        FACIAL EXPRESSION METRICS:
+        - Smile frequency: \(String(format: "%.1f%%", facial.smileFrequency * 100))
+        - Expression variety: \(String(format: "%.1f%%", facial.expressionVariety * 100))
+        - Engagement level: \(String(format: "%.1f%%", facial.averageEngagement * 100))
+        - Facial score: \(gestureMetrics.facialScore)/100
+
+        BODY POSTURE METRICS:
+        - Posture confidence: \(String(format: "%.1f%%", posture.averageConfidence * 100))
+        - Movement consistency: \(String(format: "%.1f%%", posture.movementConsistency * 100))
+        - Stability: \(String(format: "%.1f%%", posture.stabilityScore * 100))
+        - Posture score: \(gestureMetrics.postureScore)/100
+
+        OVERALL GESTURE SCORE: \(gestureMetrics.overallScore)/100
+
+        PRESENTATION CONTEXT (first 200 chars):
+        "\(String(transcription.prefix(200)))..."
+
+        Provide your gesture analysis in JSON format as specified.
+        """
+
+        // Create chat request
+        let chatRequest = GPTChatRequest(
+            messages: [
+                GPTMessage(role: "system", content: systemPrompt),
+                GPTMessage(role: "user", content: userPrompt)
+            ],
+            maxTokens: 400,
+            temperature: 1.0,
+            responseFormat: GPTChatRequest.ResponseFormat(type: "json_object")
+        )
+
+        // Encode request
+        let encoder = JSONEncoder()
+        let requestData = try encoder.encode(chatRequest)
+
+        // Create request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(config.azureAPIKey, forHTTPHeaderField: "api-key")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = requestData
+        request.timeoutInterval = 60
+
+        // Make request
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        print("💬 Gesture Feedback Response Status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+
+        do {
+            try validateResponse(response, data: data)
+
+            // Parse GPT response
+            let chatResponse = try JSONDecoder().decode(GPTChatResponse.self, from: data)
+            guard let messageContent = chatResponse.choices.first?.message.content else {
+                throw AzureAPIError.parseError
+            }
+
+            // Parse gesture analysis JSON from message content
+            guard let analysisData = messageContent.data(using: .utf8) else {
+                throw AzureAPIError.parseError
+            }
+
+            let decoder = JSONDecoder()
+            let analysis = try decoder.decode(GestureAnalysisResponse.self, from: analysisData)
+
+            return analysis
+
+        } catch {
+            print("⚠️ Gesture feedback generation failed, using template: \(error)")
+            // Fallback to template feedback
+            return generateTemplateGestureFeedback(for: gestureMetrics)
+        }
+    }
+
+    /// Generates template gesture feedback when GPT API fails
+    private func generateTemplateGestureFeedback(for metrics: GestureMetrics) -> GestureAnalysisResponse {
+        let score = metrics.overallScore
+        let facialScore = metrics.facialScore
+        let postureScore = metrics.postureScore
+
+        var feedback = ""
+        var strength = ""
+        var improvement = ""
+
+        // Generate feedback based on scores
+        if score >= 85 {
+            feedback = "Excellent body language! Your facial expressions and posture convey confidence and engagement. Keep maintaining this strong non-verbal communication."
+        } else if score >= 70 {
+            feedback = "Good body language overall. Your facial expressions and posture show engagement, but there's room for improvement to enhance your presence."
+        } else {
+            feedback = "Your body language needs attention. Focus on maintaining better posture and more expressive facial engagement to connect with your audience."
+        }
+
+        // Determine strength based on higher score
+        if facialScore > postureScore {
+            if metrics.facialMetrics.smileFrequency > 0.3 {
+                strength = "Your facial expressions show good engagement with frequent smiling"
+            } else {
+                strength = "Your facial expressions demonstrate natural variety"
+            }
+        } else {
+            if metrics.postureMetrics.averageConfidence > 0.7 {
+                strength = "Your upright posture conveys confidence and professionalism"
+            } else {
+                strength = "Your body movement appears natural and consistent"
+            }
+        }
+
+        // Determine improvement based on lower score
+        if facialScore < postureScore {
+            if metrics.facialMetrics.smileFrequency < 0.2 {
+                improvement = "Try smiling more to appear more approachable and engaged"
+            } else {
+                improvement = "Work on varying your facial expressions to emphasize key points"
+            }
+        } else {
+            if metrics.postureMetrics.averageConfidence < 0.6 {
+                improvement = "Focus on standing up straight with shoulders back for better presence"
+            } else {
+                improvement = "Try to find a balance between stillness and natural movement"
+            }
+        }
+
+        return GestureAnalysisResponse(
+            gestureFeedback: feedback,
+            gestureStrength: strength,
+            gestureImprovement: improvement
+        )
+    }
 }

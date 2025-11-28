@@ -16,6 +16,7 @@ struct AnalyzingView: View {
     // Add services
     @StateObject private var audioService = AudioExtractionService()
     @StateObject private var azureService = AzureOpenAIService()
+    @StateObject private var gestureService = GestureAnalysisService()
 
     @State private var progress: CGFloat = 0
     @State private var currentStep = 0
@@ -26,6 +27,7 @@ struct AnalyzingView: View {
     @State private var errorMessage: String?
     @State private var showErrorAlert = false
     @State private var currentStepMessage = ""
+    @State private var navigateToDashboard = false
     
     init(videoURL: URL? = nil, recordingType: RecordingType? = nil, project: Project? = nil) {
         self.videoURL = videoURL
@@ -37,7 +39,7 @@ struct AnalyzingView: View {
         ("mic.fill", "Analyzing audio quality..."),
         ("waveform", "Detecting tone patterns..."),
         ("speedometer", "Measuring pacing..."),
-        ("figure.wave", "Evaluating gestures..."),
+        ("face.smiling", "Analyzing facial expressions and posture..."),
         ("sparkles", "Generating feedback...")
     ]
     
@@ -58,6 +60,9 @@ struct AnalyzingView: View {
         .navigationDestination(isPresented: $navigateToFeedback) {
             FeedbackView(session: generatedSession ?? sampleSession)
         }
+        .navigationDestination(isPresented: $navigateToDashboard) {
+            DashboardView()
+        }
         .navigationBarBackButtonHidden(true)
         .onAppear {
             startRealAnalysis()
@@ -67,7 +72,11 @@ struct AnalyzingView: View {
                 progress = 0
                 currentStep = 0
                 currentStepMessage = ""
+                errorMessage = nil
                 startRealAnalysis()
+            }
+            Button("Return to Dashboard") {
+                navigateToDashboard = true
             }
             Button("Cancel", role: .cancel) {
                 // User can navigate back manually
@@ -204,25 +213,40 @@ struct AnalyzingView: View {
                 let transcription = try await azureService.transcribeAudio(audioURL)
 
                 // Step 3: Analyze speech metrics locally
-                await updateStep(2, message: "Analyzing pace and tone...", progress: 0.7)
+                await updateStep(2, message: "Analyzing pace and tone...", progress: 0.55)
                 let audioDuration = try await audioService.getAudioDuration(audioURL)
                 let metrics = azureService.analyzeSpeechMetrics(
                     transcription: transcription.text,
                     audioDuration: audioDuration
                 )
 
-                // Step 4: Generate feedback with GPT
-                await updateStep(3, message: "Generating personalized feedback...", progress: 0.9)
+                // Step 4: Analyze gestures (facial expressions + body posture)
+                await updateStep(3, message: "Analyzing facial expressions and posture...", progress: 0.75)
+                let gestureMetrics = try await gestureService.analyzeVideo(from: videoURL)
+
+                // Step 5: Generate feedback with GPT
+                await updateStep(4, message: "Generating personalized feedback...", progress: 0.95)
                 let analysis = try await azureService.generateFeedback(
                     transcription: transcription.text,
                     metrics: metrics
                 )
 
-                // Step 5: Complete and create session
+                // Generate gesture-specific feedback
+                let gestureAnalysis = try await azureService.generateGestureFeedback(
+                    gestureMetrics: gestureMetrics,
+                    transcription: transcription.text
+                )
+
+                // Complete
                 await updateStep(4, message: "Analysis complete!", progress: 1.0)
 
                 // Create session from real analysis
-                let session = createSessionFromAnalysis(analysis: analysis, metrics: metrics)
+                let session = createSessionFromAnalysis(
+                    analysis: analysis,
+                    metrics: metrics,
+                    gestureMetrics: gestureMetrics,
+                    gestureAnalysis: gestureAnalysis
+                )
 
                 // Clean up temporary audio file
                 audioService.cleanupAudioFile(audioURL)
@@ -242,6 +266,8 @@ struct AnalyzingView: View {
             } catch let error as AzureAPIError {
                 await showError(error.userMessage)
             } catch let error as AudioExtractionError {
+                await showError(error.userMessage)
+            } catch let error as GestureAnalysisError {
                 await showError(error.userMessage)
             } catch {
                 await showError("An unexpected error occurred: \(error.localizedDescription)")
@@ -266,7 +292,9 @@ struct AnalyzingView: View {
 
     private func createSessionFromAnalysis(
         analysis: GPTAnalysisResponse,
-        metrics: SpeechMetrics
+        metrics: SpeechMetrics,
+        gestureMetrics: GestureMetrics,
+        gestureAnalysis: GestureAnalysisResponse
     ) -> PracticeSession {
         // Average tone-related scores
         let toneScore = analysis.averageToneScore
@@ -274,17 +302,24 @@ struct AnalyzingView: View {
         // Calculate pacing score based on WPM
         let pacingScore = azureService.calculatePacingScore(wpm: metrics.wordsPerMinute)
 
-        // Gestures remain mock (as requested)
-        let gesturesScore = Int.random(in: 75...95)
+        // Use real gesture score from Vision analysis
+        let gesturesScore = gestureMetrics.overallScore
+
+        // Combine feedback
+        let combinedFeedback = analysis.feedback + "\n\n" + gestureAnalysis.gestureFeedback
 
         return PracticeSession(
             date: Date(),
             toneScore: toneScore,
             pacingScore: pacingScore,
             gesturesScore: gesturesScore,
-            feedback: analysis.feedback,
+            feedback: combinedFeedback,
             recordingType: recordingType?.rawValue,
-            projectId: project?.id
+            projectId: project?.id,
+            gestureStrength: gestureAnalysis.gestureStrength,
+            gestureImprovement: gestureAnalysis.gestureImprovement,
+            facialScore: gestureMetrics.facialScore,
+            postureScore: gestureMetrics.postureScore
         )
     }
     
