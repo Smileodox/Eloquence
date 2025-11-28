@@ -302,47 +302,69 @@ class AzureOpenAIService: ObservableObject {
             throw AzureAPIError.configurationError
         }
 
-        // Build system prompt for gesture analysis
-        let systemPrompt = """
-        You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics provided, evaluate the speaker's facial expressions and body posture, then provide constructive coaching feedback.
+        // Determine what was detected
+        let hasFacialData = gestureMetrics.facialScore > 0
+        let hasPostureData = gestureMetrics.postureScore > 0
 
-        Focus on:
-        - Facial expressions (smiling, engagement, expressiveness)
-        - Body posture (confidence, natural movement, stability)
+        // Build dynamic system prompt based on what was detected
+        var focusAreas: [String] = []
+        if hasFacialData { focusAreas.append("facial expressions (smiling, engagement, expressiveness)") }
+        if hasPostureData { focusAreas.append("body posture (confidence, natural movement, stability)") }
+
+        let systemPrompt = """
+        You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics provided, evaluate the speaker's \(focusAreas.joined(separator: " and ")), then provide constructive coaching feedback.
+
+        IMPORTANT: Only provide feedback about the metrics that were detected. Do not mention facial expressions if no facial data is available, and do not mention posture if no posture data is available.
 
         Respond ONLY with valid JSON matching this exact structure (no additional text):
         {
-          "gestureFeedback": "<2-3 sentences of personalized coaching feedback about facial expressions and posture>",
-          "gestureStrength": "<one specific strength in body language>",
-          "gestureImprovement": "<one specific area to improve in body language>"
+          "gestureFeedback": "<2-3 sentences of personalized coaching feedback about what was detected>",
+          "gestureStrength": "<one specific strength in the detected body language>",
+          "gestureImprovement": "<one specific area to improve in the detected metrics>"
         }
         """
 
-        // Build user prompt with gesture metrics
-        let facial = gestureMetrics.facialMetrics
-        let posture = gestureMetrics.postureMetrics
+        // Build dynamic user prompt with only the detected metrics
+        var metricsSection = ""
+
+        if hasFacialData {
+            let facial = gestureMetrics.facialMetrics
+            metricsSection += """
+            FACIAL EXPRESSION METRICS:
+            - Smile frequency: \(String(format: "%.1f%%", facial.smileFrequency * 100))
+            - Expression variety: \(String(format: "%.1f%%", facial.expressionVariety * 100))
+            - Engagement level: \(String(format: "%.1f%%", facial.averageEngagement * 100))
+            - Facial score: \(gestureMetrics.facialScore)/100
+
+            """
+        }
+
+        if hasPostureData {
+            let posture = gestureMetrics.postureMetrics
+            metricsSection += """
+            BODY POSTURE METRICS:
+            - Posture confidence: \(String(format: "%.1f%%", posture.averageConfidence * 100))
+            - Movement consistency: \(String(format: "%.1f%%", posture.movementConsistency * 100))
+            - Stability: \(String(format: "%.1f%%", posture.stabilityScore * 100))
+            - Posture score: \(gestureMetrics.postureScore)/100
+
+            """
+        }
+
+        let detectionNote = hasFacialData && hasPostureData ? "" :
+            hasFacialData ? "\nNOTE: Only facial expressions were detected (body not visible in frame)." :
+            "\nNOTE: Only body posture was detected (face not visible in frame)."
 
         let userPrompt = """
         Please analyze this speaker's body language:
 
-        FACIAL EXPRESSION METRICS:
-        - Smile frequency: \(String(format: "%.1f%%", facial.smileFrequency * 100))
-        - Expression variety: \(String(format: "%.1f%%", facial.expressionVariety * 100))
-        - Engagement level: \(String(format: "%.1f%%", facial.averageEngagement * 100))
-        - Facial score: \(gestureMetrics.facialScore)/100
-
-        BODY POSTURE METRICS:
-        - Posture confidence: \(String(format: "%.1f%%", posture.averageConfidence * 100))
-        - Movement consistency: \(String(format: "%.1f%%", posture.movementConsistency * 100))
-        - Stability: \(String(format: "%.1f%%", posture.stabilityScore * 100))
-        - Posture score: \(gestureMetrics.postureScore)/100
-
-        OVERALL GESTURE SCORE: \(gestureMetrics.overallScore)/100
+        \(metricsSection)OVERALL GESTURE SCORE: \(gestureMetrics.overallScore)/100
+        \(detectionNote)
 
         PRESENTATION CONTEXT (first 200 chars):
         "\(String(transcription.prefix(200)))..."
 
-        Provide your gesture analysis in JSON format as specified.
+        Provide your gesture analysis in JSON format as specified. Only comment on the metrics that were actually detected.
         """
 
         // Create chat request
@@ -405,47 +427,74 @@ class AzureOpenAIService: ObservableObject {
         let facialScore = metrics.facialScore
         let postureScore = metrics.postureScore
 
+        let hasFacialData = facialScore > 0
+        let hasPostureData = postureScore > 0
+
         var feedback = ""
         var strength = ""
         var improvement = ""
 
-        // Generate feedback based on scores
-        if score >= 85 {
-            feedback = "Excellent body language! Your facial expressions and posture convey confidence and engagement. Keep maintaining this strong non-verbal communication."
-        } else if score >= 70 {
-            feedback = "Good body language overall. Your facial expressions and posture show engagement, but there's room for improvement to enhance your presence."
+        // Generate feedback based on what was detected and scores
+        if hasFacialData && hasPostureData {
+            if score >= 85 {
+                feedback = "Excellent body language! Your facial expressions and posture convey confidence and engagement. Keep maintaining this strong non-verbal communication."
+            } else if score >= 70 {
+                feedback = "Good body language overall. Your facial expressions and posture show engagement, but there's room for improvement to enhance your presence."
+            } else {
+                feedback = "Your body language needs attention. Focus on maintaining better posture and more expressive facial engagement to connect with your audience."
+            }
+        } else if hasFacialData {
+            // Facial only
+            if score >= 85 {
+                feedback = "Excellent facial expressions! You show strong engagement and expressiveness. Your face conveys confidence and connection with the audience."
+            } else if score >= 70 {
+                feedback = "Good facial expressions overall. You show engagement, but there's room to be more expressive to enhance your presence."
+            } else {
+                feedback = "Your facial expressions need more variety. Try to be more expressive and maintain better engagement with your audience."
+            }
         } else {
-            feedback = "Your body language needs attention. Focus on maintaining better posture and more expressive facial engagement to connect with your audience."
+            // Posture only
+            if score >= 85 {
+                feedback = "Excellent posture! You maintain confident body positioning with natural movement. Your presence conveys professionalism."
+            } else if score >= 70 {
+                feedback = "Good posture overall. Your body positioning is solid, but there's room to enhance your physical presence."
+            } else {
+                feedback = "Your posture needs attention. Focus on standing upright with better body positioning to convey more confidence."
+            }
         }
 
-        // Determine strength based on higher score
-        if facialScore > postureScore {
+        // Determine strength based on what was detected
+        if hasFacialData && (facialScore >= postureScore || !hasPostureData) {
             if metrics.facialMetrics.smileFrequency > 0.3 {
                 strength = "Your facial expressions show good engagement with frequent smiling"
             } else {
                 strength = "Your facial expressions demonstrate natural variety"
             }
-        } else {
+        } else if hasPostureData {
             if metrics.postureMetrics.averageConfidence > 0.7 {
                 strength = "Your upright posture conveys confidence and professionalism"
             } else {
                 strength = "Your body movement appears natural and consistent"
             }
+        } else {
+            strength = "You maintained presence during the presentation"
         }
 
-        // Determine improvement based on lower score
-        if facialScore < postureScore {
+        // Determine improvement based on what was detected
+        if hasFacialData && (facialScore < postureScore || !hasPostureData) {
             if metrics.facialMetrics.smileFrequency < 0.2 {
                 improvement = "Try smiling more to appear more approachable and engaged"
             } else {
                 improvement = "Work on varying your facial expressions to emphasize key points"
             }
-        } else {
+        } else if hasPostureData {
             if metrics.postureMetrics.averageConfidence < 0.6 {
                 improvement = "Focus on standing up straight with shoulders back for better presence"
             } else {
                 improvement = "Try to find a balance between stillness and natural movement"
             }
+        } else {
+            improvement = "Ensure your face and body are visible in frame for complete feedback"
         }
 
         return GestureAnalysisResponse(
