@@ -126,6 +126,15 @@ struct FeedbackView: View {
                                             )
                                         }
 
+                                        if let eyeContactScore = session.eyeContactScore {
+                                            SubScoreRow(
+                                                icon: "eye",
+                                                label: "Eye Contact",
+                                                score: eyeContactScore,
+                                                color: .info
+                                            )
+                                        }
+
                                         // Placeholders for Phase 2
                                         SubScoreRow(
                                             icon: "hand.raised",
@@ -135,13 +144,15 @@ struct FeedbackView: View {
                                             placeholder: "Coming in Phase 2"
                                         )
 
-                                        SubScoreRow(
-                                            icon: "eye",
-                                            label: "Eye Contact",
-                                            score: nil,
-                                            color: .textMuted,
-                                            placeholder: "Coming in Phase 2"
-                                        )
+                                        if session.eyeContactScore == nil {
+                                            SubScoreRow(
+                                                icon: "eye",
+                                                label: "Eye Contact",
+                                                score: nil,
+                                                color: .textMuted,
+                                                placeholder: "Not detected in this session"
+                                            )
+                                        }
                                     }
                                     .padding(.top, 8)
                                 } label: {

@@ -305,16 +305,18 @@ class AzureOpenAIService: ObservableObject {
         // Determine what was detected
         let hasFacialData = gestureMetrics.facialScore > 0
         let hasPostureData = gestureMetrics.postureScore > 0
+        let hasEyeContactData = gestureMetrics.eyeContactScore != nil && gestureMetrics.eyeContactScore! > 0
 
         // Build dynamic system prompt based on what was detected
         var focusAreas: [String] = []
         if hasFacialData { focusAreas.append("facial expressions (smiling, engagement, expressiveness)") }
         if hasPostureData { focusAreas.append("body posture (confidence, natural movement, stability)") }
+        if hasEyeContactData { focusAreas.append("eye contact (camera focus, gaze stability)") }
 
         let systemPrompt = """
-        You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics provided, evaluate the speaker's \(focusAreas.joined(separator: " and ")), then provide constructive coaching feedback.
+        You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics provided, evaluate the speaker's \(focusAreas.joined(separator: ", ")), then provide constructive coaching feedback.
 
-        IMPORTANT: Only provide feedback about the metrics that were detected. Do not mention facial expressions if no facial data is available, and do not mention posture if no posture data is available.
+        IMPORTANT: Only provide feedback about the metrics that were detected. Do not mention facial expressions if no facial data is available, do not mention posture if no posture data is available, and do not mention eye contact if no eye contact data is available.
 
         Respond ONLY with valid JSON matching this exact structure (no additional text):
         {
@@ -351,9 +353,29 @@ class AzureOpenAIService: ObservableObject {
             """
         }
 
-        let detectionNote = hasFacialData && hasPostureData ? "" :
-            hasFacialData ? "\nNOTE: Only facial expressions were detected (body not visible in frame)." :
-            "\nNOTE: Only body posture was detected (face not visible in frame)."
+        if hasEyeContactData, let eyeContact = gestureMetrics.eyeContactMetrics, let eyeContactScore = gestureMetrics.eyeContactScore {
+            metricsSection += """
+            EYE CONTACT METRICS:
+            - Camera focus: \(String(format: "%.1f%%", eyeContact.cameraFocusPercentage * 100))
+            - Gaze stability: \(String(format: "%.1f%%", eyeContact.gazeStability * 100))
+            - Eye contact score: \(eyeContactScore)/100
+
+            """
+        }
+
+        // Build detection note based on what was detected
+        var detectionNote = ""
+        if hasFacialData && hasPostureData && hasEyeContactData {
+            detectionNote = ""  // All metrics detected, no note needed
+        } else if hasFacialData && hasPostureData {
+            detectionNote = "\nNOTE: Eye contact was not measured in this session."
+        } else if hasFacialData && hasEyeContactData {
+            detectionNote = "\nNOTE: Body posture was not detected (body not visible in frame)."
+        } else if hasFacialData {
+            detectionNote = "\nNOTE: Only facial expressions were detected (body not visible, eye contact not measured)."
+        } else if hasPostureData {
+            detectionNote = "\nNOTE: Only body posture was detected (face not visible in frame)."
+        }
 
         let userPrompt = """
         Please analyze this speaker's body language:
@@ -426,16 +448,34 @@ class AzureOpenAIService: ObservableObject {
         let score = metrics.overallScore
         let facialScore = metrics.facialScore
         let postureScore = metrics.postureScore
+        let eyeContactScore = metrics.eyeContactScore
 
         let hasFacialData = facialScore > 0
         let hasPostureData = postureScore > 0
+        let hasEyeContactData = eyeContactScore != nil && eyeContactScore! > 0
 
         var feedback = ""
         var strength = ""
         var improvement = ""
 
         // Generate feedback based on what was detected and scores
-        if hasFacialData && hasPostureData {
+        if hasFacialData && hasPostureData && hasEyeContactData {
+            if score >= 85 {
+                feedback = "Excellent body language! Your facial expressions, posture, and eye contact convey confidence and engagement. Keep maintaining this strong non-verbal communication."
+            } else if score >= 70 {
+                feedback = "Good body language overall. Your facial expressions, posture, and eye contact show engagement, but there's room for improvement to enhance your presence."
+            } else {
+                feedback = "Your body language needs attention. Focus on maintaining better posture, more expressive facial engagement, and consistent eye contact to connect with your audience."
+            }
+        } else if hasFacialData && hasEyeContactData {
+            if score >= 85 {
+                feedback = "Excellent facial expressions and eye contact! You show strong engagement and consistent gaze. Your face conveys confidence and connection with the audience."
+            } else if score >= 70 {
+                feedback = "Good facial expressions and eye contact. You show engagement, but there's room to enhance your expressiveness and gaze consistency."
+            } else {
+                feedback = "Your facial expressions and eye contact need work. Try to be more expressive and maintain better gaze stability with your audience."
+            }
+        } else if hasFacialData && hasPostureData {
             if score >= 85 {
                 feedback = "Excellent body language! Your facial expressions and posture convey confidence and engagement. Keep maintaining this strong non-verbal communication."
             } else if score >= 70 {
@@ -463,35 +503,63 @@ class AzureOpenAIService: ObservableObject {
             }
         }
 
-        // Determine strength based on what was detected
-        if hasFacialData && (facialScore >= postureScore || !hasPostureData) {
-            if metrics.facialMetrics.smileFrequency > 0.3 {
-                strength = "Your facial expressions show good engagement with frequent smiling"
-            } else {
-                strength = "Your facial expressions demonstrate natural variety"
-            }
-        } else if hasPostureData {
-            if metrics.postureMetrics.averageConfidence > 0.7 {
-                strength = "Your upright posture conveys confidence and professionalism"
-            } else {
-                strength = "Your body movement appears natural and consistent"
+        // Determine strength based on what was detected (prioritize highest scoring metric)
+        let scores = [
+            (hasFacialData, facialScore, "facial"),
+            (hasPostureData, postureScore, "posture"),
+            (hasEyeContactData, eyeContactScore ?? 0, "eyeContact")
+        ].filter { $0.0 }.sorted { $0.1 > $1.1 }
+
+        if let topMetric = scores.first {
+            switch topMetric.2 {
+            case "facial":
+                if metrics.facialMetrics.smileFrequency > 0.3 {
+                    strength = "Your facial expressions show good engagement with frequent smiling"
+                } else {
+                    strength = "Your facial expressions demonstrate natural variety"
+                }
+            case "posture":
+                if metrics.postureMetrics.averageConfidence > 0.7 {
+                    strength = "Your upright posture conveys confidence and professionalism"
+                } else {
+                    strength = "Your body movement appears natural and consistent"
+                }
+            case "eyeContact":
+                if let eyeContact = metrics.eyeContactMetrics, eyeContact.cameraFocusPercentage > 0.6 {
+                    strength = "Your consistent eye contact shows strong engagement with the audience"
+                } else {
+                    strength = "Your gaze direction demonstrates attentiveness"
+                }
+            default:
+                strength = "You maintained presence during the presentation"
             }
         } else {
             strength = "You maintained presence during the presentation"
         }
 
-        // Determine improvement based on what was detected
-        if hasFacialData && (facialScore < postureScore || !hasPostureData) {
-            if metrics.facialMetrics.smileFrequency < 0.2 {
-                improvement = "Try smiling more to appear more approachable and engaged"
-            } else {
-                improvement = "Work on varying your facial expressions to emphasize key points"
-            }
-        } else if hasPostureData {
-            if metrics.postureMetrics.averageConfidence < 0.6 {
-                improvement = "Focus on standing up straight with shoulders back for better presence"
-            } else {
-                improvement = "Try to find a balance between stillness and natural movement"
+        // Determine improvement based on what was detected (prioritize lowest scoring metric)
+        if let worstMetric = scores.last {
+            switch worstMetric.2 {
+            case "facial":
+                if metrics.facialMetrics.smileFrequency < 0.2 {
+                    improvement = "Try smiling more to appear more approachable and engaged"
+                } else {
+                    improvement = "Work on varying your facial expressions to emphasize key points"
+                }
+            case "posture":
+                if metrics.postureMetrics.averageConfidence < 0.6 {
+                    improvement = "Focus on standing up straight with shoulders back for better presence"
+                } else {
+                    improvement = "Try to find a balance between stillness and natural movement"
+                }
+            case "eyeContact":
+                if let eyeContact = metrics.eyeContactMetrics, eyeContact.cameraFocusPercentage < 0.5 {
+                    improvement = "Try to look at the camera more frequently to connect with your audience"
+                } else {
+                    improvement = "Work on maintaining more stable gaze direction to appear more focused"
+                }
+            default:
+                improvement = "Ensure your face and body are visible in frame for complete feedback"
             }
         } else {
             improvement = "Ensure your face and body are visible in frame for complete feedback"

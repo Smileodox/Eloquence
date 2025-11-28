@@ -319,7 +319,8 @@ struct AnalyzingView: View {
             gestureStrength: gestureAnalysis.gestureStrength,
             gestureImprovement: gestureAnalysis.gestureImprovement,
             facialScore: gestureMetrics.facialScore,
-            postureScore: gestureMetrics.postureScore
+            postureScore: gestureMetrics.postureScore,
+            eyeContactScore: gestureMetrics.eyeContactScore
         )
     }
     

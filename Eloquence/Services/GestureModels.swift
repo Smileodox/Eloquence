@@ -12,9 +12,11 @@ import Foundation
 struct GestureMetrics {
     let facialMetrics: FacialMetrics
     let postureMetrics: PostureMetrics
+    let eyeContactMetrics: EyeContactMetrics?  // Only available if face detected
     let overallScore: Int
     let facialScore: Int
     let postureScore: Int
+    let eyeContactScore: Int?  // Nil if face not detected
 }
 
 struct FacialMetrics {
@@ -49,6 +51,19 @@ struct FacialFrame {
     let smiling: Bool
     let expressiveness: Double
     let engagement: Double
+    let lookingAtCamera: Bool  // Eye contact detection
+}
+
+struct EyeContactMetrics {
+    let cameraFocusPercentage: Double  // 0.0-1.0 (% of frames looking at camera)
+    let gazeStability: Double          // 0.0-1.0 (consistency of gaze direction)
+    let framesAnalyzed: Int            // Frames with eye contact data
+    let totalFrames: Int               // Total facial frames
+
+    var detectionRate: Double {
+        guard totalFrames > 0 else { return 0.0 }
+        return Double(framesAnalyzed) / Double(totalFrames)
+    }
 }
 
 struct PostureFrame {

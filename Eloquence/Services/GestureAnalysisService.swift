@@ -33,7 +33,11 @@ class GestureAnalysisService: ObservableObject {
         async let facialTask = analyzeFacialExpressions(in: frames)
         async let postureTask = analyzeBodyPosture(in: frames)
 
-        let (facialMetrics, postureMetrics) = await (facialTask, postureTask)
+        let (facialResult, postureMetrics) = await (facialTask, postureTask)
+
+        // Extract facial metrics and frames
+        let facialMetrics = facialResult?.0
+        let facialFrames = facialResult?.1 ?? []
 
         // Check if we have ANY data to work with
         guard facialMetrics != nil || postureMetrics != nil else {
@@ -41,31 +45,38 @@ class GestureAnalysisService: ObservableObject {
             throw GestureAnalysisError.insufficientData
         }
 
-        // Step 3: Calculate scores (gracefully handle missing data)
+        // Step 3: Calculate eye contact metrics (only if face was detected)
+        let eyeContactMetrics = facialMetrics != nil ? calculateEyeContactMetrics(from: facialFrames) : nil
+
+        // Step 4: Calculate scores (gracefully handle missing data)
         let facialScore = facialMetrics != nil ? calculateFacialScore(from: facialMetrics!) : nil
         let postureScore = postureMetrics != nil ? calculatePostureScore(from: postureMetrics!) : nil
+        let eyeContactScore = eyeContactMetrics != nil ? calculateEyeContactScore(from: eyeContactMetrics!) : nil
         let overallScore = calculateOverallScore(
             facial: facialScore,
             posture: postureScore,
+            eyeContact: eyeContactScore,
             facialMetrics: facialMetrics,
-            postureMetrics: postureMetrics
+            postureMetrics: postureMetrics,
+            eyeContactMetrics: eyeContactMetrics
         )
 
         // Log what was detected
-        if facialMetrics != nil && postureMetrics != nil {
-            print("📹 Analysis complete - Facial: \(facialScore!), Posture: \(postureScore!), Overall: \(overallScore)")
-        } else if facialMetrics != nil {
-            print("📹 Analysis complete (face only) - Facial: \(facialScore!), Overall: \(overallScore)")
-        } else {
-            print("📹 Analysis complete (posture only) - Posture: \(postureScore!), Overall: \(overallScore)")
-        }
+        var logComponents: [String] = []
+        if let facial = facialScore { logComponents.append("Facial: \(facial)") }
+        if let posture = postureScore { logComponents.append("Posture: \(posture)") }
+        if let eyeContact = eyeContactScore { logComponents.append("Eye Contact: \(eyeContact)") }
+        logComponents.append("Overall: \(overallScore)")
+        print("📹 Analysis complete - \(logComponents.joined(separator: ", "))")
 
         return GestureMetrics(
             facialMetrics: facialMetrics ?? createEmptyFacialMetrics(totalFrames: frames.count),
             postureMetrics: postureMetrics ?? createEmptyPostureMetrics(totalFrames: frames.count),
+            eyeContactMetrics: eyeContactMetrics,
             overallScore: overallScore,
             facialScore: facialScore ?? 0,
-            postureScore: postureScore ?? 0
+            postureScore: postureScore ?? 0,
+            eyeContactScore: eyeContactScore
         )
     }
 
@@ -124,8 +135,8 @@ class GestureAnalysisService: ObservableObject {
 
     /// Analyzes facial expressions across all frames
     /// - Parameter frames: Array of video frames
-    /// - Returns: Facial metrics aggregated across all frames, or nil if insufficient data
-    private func analyzeFacialExpressions(in frames: [CVPixelBuffer]) async -> FacialMetrics? {
+    /// - Returns: Tuple of (FacialMetrics, facialFrames array) or nil if insufficient data
+    private func analyzeFacialExpressions(in frames: [CVPixelBuffer]) async -> (FacialMetrics, [FacialFrame])? {
         print("😊 Analyzing facial expressions...")
 
         var facialFrames: [FacialFrame] = []
@@ -160,12 +171,50 @@ class GestureAnalysisService: ObservableObject {
 
         let averageEngagement = facialFrames.map { $0.engagement }.reduce(0, +) / Double(facialFrames.count)
 
-        return FacialMetrics(
+        let metrics = FacialMetrics(
             smileFrequency: smileFrequency,
             expressionVariety: min(1.0, expressionVariety), // Normalize to 0-1
             averageEngagement: averageEngagement,
             framesAnalyzed: framesWithFace,
             totalFrames: frames.count
+        )
+
+        return (metrics, facialFrames)
+    }
+
+    /// Calculates eye contact metrics from facial frames
+    /// - Parameter facialFrames: Array of facial frames with eye contact data
+    /// - Returns: Eye contact metrics or nil if insufficient data
+    private func calculateEyeContactMetrics(from facialFrames: [FacialFrame]) -> EyeContactMetrics? {
+        guard !facialFrames.isEmpty else { return nil }
+
+        print("👁️ Analyzing eye contact from \(facialFrames.count) facial frames...")
+
+        // Calculate percentage of frames where looking at camera
+        let framesLookingAtCamera = facialFrames.filter { $0.lookingAtCamera }.count
+        let cameraFocusPercentage = Double(framesLookingAtCamera) / Double(facialFrames.count)
+
+        // Calculate gaze stability (how consistent is the gaze direction)
+        // Use moving window to detect how often gaze changes
+        var gazeChanges = 0
+        for i in 1..<facialFrames.count {
+            if facialFrames[i].lookingAtCamera != facialFrames[i-1].lookingAtCamera {
+                gazeChanges += 1
+            }
+        }
+
+        // Normalize: fewer changes = more stable gaze
+        // Perfect stability (no changes) = 1.0, many changes = lower score
+        let maxExpectedChanges = facialFrames.count / 3  // Change every 3 frames would be very unstable
+        let gazeStability = max(0, 1.0 - (Double(gazeChanges) / Double(maxExpectedChanges)))
+
+        print("👁️ Camera focus: \(String(format: "%.1f%%", cameraFocusPercentage * 100)), Stability: \(String(format: "%.2f", gazeStability))")
+
+        return EyeContactMetrics(
+            cameraFocusPercentage: cameraFocusPercentage,
+            gazeStability: gazeStability,
+            framesAnalyzed: facialFrames.count,
+            totalFrames: facialFrames.count
         )
     }
 
@@ -195,10 +244,14 @@ class GestureAnalysisService: ObservableObject {
         let eyeOpenness = calculateEyeOpenness(from: landmarks)
         let engagement = (quality + eyeOpenness) / 2.0
 
+        // Detect eye contact (looking at camera)
+        let lookingAtCamera = detectEyeContact(from: landmarks, faceObservation: faceObservation)
+
         return FacialFrame(
             smiling: smiling,
             expressiveness: expressiveness,
-            engagement: engagement
+            engagement: engagement,
+            lookingAtCamera: lookingAtCamera
         )
     }
 
@@ -284,6 +337,66 @@ class GestureAnalysisService: ObservableObject {
 
         guard count > 0 else { return 0.5 }
         return openness / Double(count)
+    }
+
+    /// Detects eye contact by analyzing gaze direction
+    private func detectEyeContact(from landmarks: VNFaceLandmarks2D, faceObservation: VNFaceObservation) -> Bool {
+        // Get pupil landmarks if available
+        guard let leftPupil = landmarks.leftPupil,
+              let rightPupil = landmarks.rightPupil else {
+            // Fall back to using eye regions to estimate gaze
+            return estimateGazeFromEyes(landmarks: landmarks, faceObservation: faceObservation)
+        }
+
+        let leftPupilPoints = leftPupil.normalizedPoints
+        let rightPupilPoints = rightPupil.normalizedPoints
+
+        guard !leftPupilPoints.isEmpty && !rightPupilPoints.isEmpty else {
+            return estimateGazeFromEyes(landmarks: landmarks, faceObservation: faceObservation)
+        }
+
+        // Get average pupil position
+        let leftPupilCenter = leftPupilPoints[0]
+        let rightPupilCenter = rightPupilPoints[0]
+
+        // Get eye landmarks for comparison
+        guard let leftEye = landmarks.leftEye,
+              let rightEye = landmarks.rightEye else {
+            return false
+        }
+
+        let leftEyePoints = leftEye.normalizedPoints
+        let rightEyePoints = rightEye.normalizedPoints
+
+        guard leftEyePoints.count >= 4 && rightEyePoints.count >= 4 else {
+            return false
+        }
+
+        // Calculate pupil position relative to eye bounds
+        // If pupil is centered in the eye, likely looking at camera
+        let leftEyeCenterX = leftEyePoints.map { $0.x }.reduce(0, +) / CGFloat(leftEyePoints.count)
+        let rightEyeCenterX = rightEyePoints.map { $0.x }.reduce(0, +) / CGFloat(rightEyePoints.count)
+
+        let leftOffset = abs(leftPupilCenter.x - leftEyeCenterX)
+        let rightOffset = abs(rightPupilCenter.x - rightEyeCenterX)
+
+        // Threshold for "looking at camera" - pupils should be relatively centered
+        let threshold: CGFloat = 0.15
+        return leftOffset < threshold && rightOffset < threshold
+    }
+
+    /// Estimates gaze direction from eye shape when pupils aren't available
+    private func estimateGazeFromEyes(landmarks: VNFaceLandmarks2D, faceObservation: VNFaceObservation) -> Bool {
+        // Use face yaw (rotation) as a proxy
+        // If face is relatively straight-on, assume looking at camera
+        guard let yaw = faceObservation.yaw else {
+            // If yaw unavailable, assume neutral (looking at camera)
+            return true
+        }
+
+        // Yaw of ±20 degrees is acceptable for "eye contact"
+        let yawDegrees = abs(yaw.doubleValue * 180.0 / .pi)
+        return yawDegrees < 20.0
     }
 
     // MARK: - Body Posture Analysis
@@ -442,26 +555,52 @@ class GestureAnalysisService: ObservableObject {
         return Int(score.rounded())
     }
 
+    /// Calculates eye contact score from metrics
+    private func calculateEyeContactScore(from metrics: EyeContactMetrics) -> Int {
+        let score = (
+            metrics.cameraFocusPercentage * 0.70 +
+            metrics.gazeStability * 0.30
+        ) * 100.0
+
+        return Int(score.rounded())
+    }
+
     /// Calculates overall gesture score with graceful fallbacks for missing data
     private func calculateOverallScore(
         facial: Int?,
         posture: Int?,
+        eyeContact: Int?,
         facialMetrics: FacialMetrics?,
-        postureMetrics: PostureMetrics?
+        postureMetrics: PostureMetrics?,
+        eyeContactMetrics: EyeContactMetrics?
     ) -> Int {
-        // If both are available, use weighted average
+        // All three metrics available (face + posture + eye contact)
+        if let facial = facial, let posture = posture, let eyeContact = eyeContact {
+            let score = Double(facial) * 0.40 + Double(posture) * 0.35 + Double(eyeContact) * 0.25
+            return Int(score.rounded())
+        }
+
+        // Facial + eye contact (no posture)
+        if let facial = facial, let eyeContact = eyeContact {
+            print("ℹ️ Using facial + eye contact scoring (body not detected)")
+            let score = Double(facial) * 0.65 + Double(eyeContact) * 0.35
+            return Int(score.rounded())
+        }
+
+        // Facial + posture (no eye contact)
         if let facial = facial, let posture = posture {
+            print("ℹ️ Using facial + posture scoring (eye contact not measured)")
             let score = Double(facial) * 0.55 + Double(posture) * 0.45
             return Int(score.rounded())
         }
 
-        // If only facial is available
+        // Only facial available
         if let facial = facial {
-            print("ℹ️ Using facial-only scoring (body not detected)")
+            print("ℹ️ Using facial-only scoring (body not detected, eye contact not measured)")
             return facial
         }
 
-        // If only posture is available
+        // Only posture available (eye contact not possible without face)
         if let posture = posture {
             print("ℹ️ Using posture-only scoring (face not detected)")
             return posture
