@@ -33,21 +33,39 @@ class GestureAnalysisService: ObservableObject {
         async let facialTask = analyzeFacialExpressions(in: frames)
         async let postureTask = analyzeBodyPosture(in: frames)
 
-        let (facialMetrics, postureMetrics) = try await (facialTask, postureTask)
+        let (facialMetrics, postureMetrics) = await (facialTask, postureTask)
 
-        // Step 3: Calculate scores
-        let facialScore = calculateFacialScore(from: facialMetrics)
-        let postureScore = calculatePostureScore(from: postureMetrics)
-        let overallScore = calculateOverallScore(facial: facialScore, posture: postureScore, facialMetrics: facialMetrics, postureMetrics: postureMetrics)
+        // Check if we have ANY data to work with
+        guard facialMetrics != nil || postureMetrics != nil else {
+            print("❌ No gesture data detected - neither face nor body visible")
+            throw GestureAnalysisError.insufficientData
+        }
 
-        print("📹 Analysis complete - Facial: \(facialScore), Posture: \(postureScore), Overall: \(overallScore)")
+        // Step 3: Calculate scores (gracefully handle missing data)
+        let facialScore = facialMetrics != nil ? calculateFacialScore(from: facialMetrics!) : nil
+        let postureScore = postureMetrics != nil ? calculatePostureScore(from: postureMetrics!) : nil
+        let overallScore = calculateOverallScore(
+            facial: facialScore,
+            posture: postureScore,
+            facialMetrics: facialMetrics,
+            postureMetrics: postureMetrics
+        )
+
+        // Log what was detected
+        if facialMetrics != nil && postureMetrics != nil {
+            print("📹 Analysis complete - Facial: \(facialScore!), Posture: \(postureScore!), Overall: \(overallScore)")
+        } else if facialMetrics != nil {
+            print("📹 Analysis complete (face only) - Facial: \(facialScore!), Overall: \(overallScore)")
+        } else {
+            print("📹 Analysis complete (posture only) - Posture: \(postureScore!), Overall: \(overallScore)")
+        }
 
         return GestureMetrics(
-            facialMetrics: facialMetrics,
-            postureMetrics: postureMetrics,
+            facialMetrics: facialMetrics ?? createEmptyFacialMetrics(totalFrames: frames.count),
+            postureMetrics: postureMetrics ?? createEmptyPostureMetrics(totalFrames: frames.count),
             overallScore: overallScore,
-            facialScore: facialScore,
-            postureScore: postureScore
+            facialScore: facialScore ?? 0,
+            postureScore: postureScore ?? 0
         )
     }
 
@@ -106,8 +124,8 @@ class GestureAnalysisService: ObservableObject {
 
     /// Analyzes facial expressions across all frames
     /// - Parameter frames: Array of video frames
-    /// - Returns: Facial metrics aggregated across all frames
-    private func analyzeFacialExpressions(in frames: [CVPixelBuffer]) async throws -> FacialMetrics {
+    /// - Returns: Facial metrics aggregated across all frames, or nil if insufficient data
+    private func analyzeFacialExpressions(in frames: [CVPixelBuffer]) async -> FacialMetrics? {
         print("😊 Analyzing facial expressions...")
 
         var facialFrames: [FacialFrame] = []
@@ -128,9 +146,10 @@ class GestureAnalysisService: ObservableObject {
 
         print("😊 Detected face in \(framesWithFace)/\(frames.count) frames")
 
-        // Require at least 30% of frames to have face detected
-        guard Double(framesWithFace) / Double(frames.count) >= 0.3 else {
-            throw GestureAnalysisError.noFaceDetected
+        // Return nil if too few faces detected (instead of throwing error)
+        guard Double(framesWithFace) / Double(frames.count) >= 0.1 else {
+            print("⚠️ Insufficient facial data - face detected in <10% of frames")
+            return nil
         }
 
         // Calculate aggregated metrics
@@ -271,8 +290,8 @@ class GestureAnalysisService: ObservableObject {
 
     /// Analyzes body posture across all frames
     /// - Parameter frames: Array of video frames
-    /// - Returns: Posture metrics aggregated across all frames
-    private func analyzeBodyPosture(in frames: [CVPixelBuffer]) async throws -> PostureMetrics {
+    /// - Returns: Posture metrics aggregated across all frames, or nil if insufficient data
+    private func analyzeBodyPosture(in frames: [CVPixelBuffer]) async -> PostureMetrics? {
         print("🧍 Analyzing body posture...")
 
         var postureFrames: [PostureFrame] = []
@@ -293,9 +312,10 @@ class GestureAnalysisService: ObservableObject {
 
         print("🧍 Detected body in \(framesWithBody)/\(frames.count) frames")
 
-        // Require at least 30% of frames to have body detected
-        guard Double(framesWithBody) / Double(frames.count) >= 0.3 else {
-            throw GestureAnalysisError.noBodyDetected
+        // Return nil if too few bodies detected (instead of throwing error)
+        guard Double(framesWithBody) / Double(frames.count) >= 0.1 else {
+            print("⚠️ Insufficient posture data - body detected in <10% of frames")
+            return nil
         }
 
         // Calculate aggregated metrics
@@ -422,23 +442,55 @@ class GestureAnalysisService: ObservableObject {
         return Int(score.rounded())
     }
 
-    /// Calculates overall gesture score with fallbacks
-    private func calculateOverallScore(facial: Int, posture: Int, facialMetrics: FacialMetrics, postureMetrics: PostureMetrics) -> Int {
-        let faceDetectionRate = facialMetrics.detectionRate
-        let bodyDetectionRate = postureMetrics.detectionRate
-
-        // Adjust weights based on detection rates
-        if faceDetectionRate < 0.5 && bodyDetectionRate >= 0.5 {
-            // Use posture only
-            return posture
-        } else if bodyDetectionRate < 0.5 && faceDetectionRate >= 0.5 {
-            // Use face only
-            return facial
-        } else {
-            // Use weighted average (55% facial, 45% posture)
+    /// Calculates overall gesture score with graceful fallbacks for missing data
+    private func calculateOverallScore(
+        facial: Int?,
+        posture: Int?,
+        facialMetrics: FacialMetrics?,
+        postureMetrics: PostureMetrics?
+    ) -> Int {
+        // If both are available, use weighted average
+        if let facial = facial, let posture = posture {
             let score = Double(facial) * 0.55 + Double(posture) * 0.45
             return Int(score.rounded())
         }
+
+        // If only facial is available
+        if let facial = facial {
+            print("ℹ️ Using facial-only scoring (body not detected)")
+            return facial
+        }
+
+        // If only posture is available
+        if let posture = posture {
+            print("ℹ️ Using posture-only scoring (face not detected)")
+            return posture
+        }
+
+        // Should never reach here due to guard in analyzeVideo
+        return 50
+    }
+
+    /// Creates empty facial metrics for when face isn't detected
+    private func createEmptyFacialMetrics(totalFrames: Int) -> FacialMetrics {
+        return FacialMetrics(
+            smileFrequency: 0,
+            expressionVariety: 0,
+            averageEngagement: 0,
+            framesAnalyzed: 0,
+            totalFrames: totalFrames
+        )
+    }
+
+    /// Creates empty posture metrics for when body isn't detected
+    private func createEmptyPostureMetrics(totalFrames: Int) -> PostureMetrics {
+        return PostureMetrics(
+            averageConfidence: 0,
+            movementConsistency: 0,
+            stabilityScore: 0,
+            framesAnalyzed: 0,
+            totalFrames: totalFrames
+        )
     }
 
     // MARK: - Helper Functions
