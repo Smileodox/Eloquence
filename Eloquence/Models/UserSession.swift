@@ -159,7 +159,24 @@ class UserSession: ObservableObject {
     }
     
     func addSession(_ session: PracticeSession) {
-        sessions.append(session)
+        var sessionToSave = session
+        
+        // Persist key frame images to disk
+        if let keyFrames = sessionToSave.keyFrames {
+            var updatedKeyFrames: [KeyFrame] = []
+            for var keyFrame in keyFrames {
+                if keyFrame.imagePath == nil && !keyFrame.image.isEmpty {
+                    if let path = FileStorageService.shared.saveImage(keyFrame.image, id: keyFrame.id) {
+                        keyFrame.imagePath = path
+                        print("💾 [UserSession] Saved keyframe image to \(path)")
+                    }
+                }
+                updatedKeyFrames.append(keyFrame)
+            }
+            sessionToSave.keyFrames = updatedKeyFrames
+        }
+        
+        sessions.append(sessionToSave)
         
         // Calculate improvement
         if sessions.count >= 2 {

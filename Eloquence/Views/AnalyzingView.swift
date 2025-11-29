@@ -18,6 +18,9 @@ struct AnalyzingView: View {
     @StateObject private var azureService = AzureOpenAIService()
     @StateObject private var gestureService = GestureAnalysisService()
 
+    // Network retry helper for API calls
+    private let retryHelper = NetworkRetryHelper()
+
     @State private var progress: CGFloat = 0
     @State private var currentStep = 0
     @State private var navigateToFeedback = false
@@ -208,9 +211,11 @@ struct AnalyzingView: View {
                 await updateStep(0, message: "Extracting audio from video...", progress: 0.2)
                 let audioURL = try await audioService.extractAudio(from: videoURL)
 
-                // Step 2: Transcribe audio with Whisper
+                // Step 2: Transcribe audio with Whisper (with retry logic)
                 await updateStep(1, message: "Transcribing speech with AI...", progress: 0.5)
-                let transcription = try await azureService.transcribeAudio(audioURL)
+                let transcription = try await retryHelper.withRetry {
+                    try await azureService.transcribeAudio(audioURL)
+                }
 
                 // Step 3: Analyze speech metrics locally
                 await updateStep(2, message: "Analyzing pace and tone...", progress: 0.55)
@@ -224,28 +229,41 @@ struct AnalyzingView: View {
                 await updateStep(3, message: "Analyzing facial expressions and posture...", progress: 0.75)
                 let gestureMetrics = try await gestureService.analyzeVideo(from: videoURL)
 
-                // Step 5: Generate feedback with GPT
-                await updateStep(4, message: "Generating personalized feedback...", progress: 0.95)
-                let analysis = try await azureService.generateFeedback(
-                    transcription: transcription.text,
-                    metrics: metrics
-                )
+                // Step 5: Generate ALL feedback in parallel (Text + Vision)
+                await updateStep(4, message: "Generating personalized feedback...", progress: 0.90)
 
-                // Generate gesture-specific feedback
-                let gestureAnalysis = try await azureService.generateGestureFeedback(
+                // Launch all AI tasks simultaneously
+                async let analysisTask = retryHelper.withRetry {
+                    try await azureService.generateFeedback(
+                        transcription: transcription.text,
+                        metrics: metrics
+                    )
+                }
+
+                async let gestureAnalysisTask = retryHelper.withRetry {
+                    try await azureService.generateGestureFeedback(
+                        gestureMetrics: gestureMetrics,
+                        transcription: transcription.text
+                    )
+                }
+                
+                async let enhancedMetricsTask = enhanceKeyFramesWithAI(
                     gestureMetrics: gestureMetrics,
                     transcription: transcription.text
                 )
+
+                // Wait for everything to complete
+                let (speechAnalysis, gestureAnalysisResult, enhancedGestureMetrics) = try await (analysisTask, gestureAnalysisTask, enhancedMetricsTask)
 
                 // Complete
                 await updateStep(4, message: "Analysis complete!", progress: 1.0)
 
                 // Create session from real analysis
                 let session = createSessionFromAnalysis(
-                    analysis: analysis,
+                    analysis: speechAnalysis,
                     metrics: metrics,
-                    gestureMetrics: gestureMetrics,
-                    gestureAnalysis: gestureAnalysis
+                    gestureMetrics: enhancedGestureMetrics,
+                    gestureAnalysis: gestureAnalysisResult
                 )
 
                 // Clean up temporary audio file
@@ -288,6 +306,118 @@ struct AnalyzingView: View {
     private func showError(_ message: String) {
         errorMessage = message
         showErrorAlert = true
+    }
+
+    /// Enhances key frames with AI-generated annotations using GPT-4o vision
+    private func enhanceKeyFramesWithAI(
+        gestureMetrics: GestureMetrics,
+        transcription: String
+    ) async throws -> GestureMetrics {
+        print("🎨 [AI Enhancement] Generating AI annotations for \(gestureMetrics.keyFrames.count) key frames...")
+
+        // Extract context excerpts from transcription for each frame
+        let words = transcription.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        let wordsPerSecond = Double(words.count) / (Double(words.count) / 150.0 * 60.0) / 60.0  // Rough estimate
+
+        var enhancedFrames: [KeyFrame] = []
+        
+        // Use TaskGroup to process frames in parallel
+        try await withThrowingTaskGroup(of: KeyFrame.self) { group in
+            for keyFrame in gestureMetrics.keyFrames {
+                group.addTask {
+                    do {
+                        // Extract ~500 chars of transcription context around timestamp
+                        let contextExcerpt = self.extractTranscriptionContext(
+                            from: transcription,
+                            timestamp: keyFrame.timestamp,
+                            wordsPerSecond: wordsPerSecond,
+                            contextLength: 500
+                        )
+
+                        // Generate AI annotation
+                        let aiAnnotation = try await self.azureService.generateKeyFrameAnnotation(
+                            imageData: keyFrame.image,
+                            type: keyFrame.type,
+                            transcriptionExcerpt: contextExcerpt,
+                            timestamp: keyFrame.timestamp
+                        )
+
+                        // Create enhanced frame with AI annotation
+                        let enhancedFrame = KeyFrame(
+                            id: keyFrame.id,
+                            image: keyFrame.image,
+                            timestamp: keyFrame.timestamp,
+                            type: keyFrame.type,
+                            primaryMetric: keyFrame.primaryMetric,
+                            score: keyFrame.score,
+                            annotation: aiAnnotation,  // AI-generated!
+                            isPositive: keyFrame.isPositive
+                        )
+                        
+                        print("✅ [AI Enhancement] Frame \(keyFrame.type.rawValue) at \(String(format: "%.1f", keyFrame.timestamp))s: \(aiAnnotation)")
+                        return enhancedFrame
+                        
+                    } catch {
+                        print("⚠️ [AI Enhancement] Failed for frame \(keyFrame.type.rawValue), keeping original: \(error)")
+                        // Keep original frame if AI annotation fails
+                        return keyFrame
+                    }
+                }
+            }
+            
+            // Collect results
+            for try await frame in group {
+                enhancedFrames.append(frame)
+            }
+        }
+        
+        // Sort frames by timestamp to maintain original order
+        enhancedFrames.sort { $0.timestamp < $1.timestamp }
+
+        print("🎨 [AI Enhancement] Complete - enhanced \(enhancedFrames.count) frames")
+
+        // Return updated GestureMetrics with AI-enhanced frames
+        return GestureMetrics(
+            facialMetrics: gestureMetrics.facialMetrics,
+            postureMetrics: gestureMetrics.postureMetrics,
+            eyeContactMetrics: gestureMetrics.eyeContactMetrics,
+            overallScore: gestureMetrics.overallScore,
+            facialScore: gestureMetrics.facialScore,
+            postureScore: gestureMetrics.postureScore,
+            eyeContactScore: gestureMetrics.eyeContactScore,
+            keyFrames: enhancedFrames
+        )
+    }
+
+    /// Extracts a portion of transcription around a specific timestamp
+    private func extractTranscriptionContext(
+        from transcription: String,
+        timestamp: Double,
+        wordsPerSecond: Double,
+        contextLength: Int
+    ) -> String {
+        // Estimate which words are around this timestamp
+        let words = transcription.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        let wordIndex = Int(timestamp * wordsPerSecond)
+
+        // Take ±30 words around the timestamp (or full text if short)
+        let contextWindowSize = 30
+        let startIndex = max(0, wordIndex - contextWindowSize)
+        let endIndex = min(words.count, wordIndex + contextWindowSize)
+
+        let contextWords = Array(words[startIndex..<endIndex])
+        let context = contextWords.joined(separator: " ")
+
+        // Trim to desired length if still too long
+        if context.count > contextLength {
+            let midpoint = context.count / 2
+            let halfLength = contextLength / 2
+            let start = max(0, midpoint - halfLength)
+            let end = min(context.count, midpoint + halfLength)
+            return String(context[context.index(context.startIndex, offsetBy: start)..<context.index(context.startIndex, offsetBy: end)])
+        }
+
+        return context
     }
 
     private func createSessionFromAnalysis(

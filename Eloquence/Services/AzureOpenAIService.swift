@@ -133,9 +133,9 @@ class AzureOpenAIService: ObservableObject {
             throw AzureAPIError.configurationError
         }
 
-        // Build system prompt
+        // Build enhanced system prompt with examples (QUALITY IMPROVEMENT)
         let systemPrompt = """
-        You are an expert presentation coach analyzing a practice presentation. Based on the transcription and metrics provided, evaluate the speaker's performance and provide constructive coaching feedback.
+        You are an expert presentation coach analyzing a practice presentation. Provide detailed, personalized coaching feedback that references specific moments from the transcription.
 
         Scoring Guidelines:
         - Tone Score (0-100): Overall vocal quality, appropriateness for context
@@ -148,15 +148,25 @@ class AzureOpenAIService: ObservableObject {
         - Acceptable: 100-130 or 150-180 WPM (slightly slow or fast)
         - Poor: Below 100 or above 180 WPM (too slow or rushed)
 
+        Feedback Quality Guidelines:
+        - Reference specific moments and quotes from the transcription
+        - Balance strengths and growth areas with concrete examples
+        - Provide actionable advice, not generic observations
+        - Match your tone to the presentation's formality and topic
+        - Use as much detail as needed to be genuinely helpful (2-8 sentences is fine)
+
+        Example of excellent feedback:
+        "Your opening about climate change showed strong conviction, especially when you emphasized the 2050 deadline at the start. Your pace was ideal (145 WPM) - fast enough to show energy but not rushed. The transition where you said 'but here's what we can do' was perfectly timed and confident. Consider varying your vocal tone more when transitioning between hard statistics and human impact stories to create more emotional contrast and keep your audience engaged. Your conclusion would also benefit from a slight pause before the final call-to-action to let the weight settle."
+
         Respond ONLY with valid JSON matching this exact structure (no additional text):
         {
           "toneScore": <number 0-100>,
           "confidenceScore": <number 0-100>,
           "enthusiasmScore": <number 0-100>,
           "clarityScore": <number 0-100>,
-          "feedback": "<2-3 sentences of personalized coaching feedback>",
-          "keyStrengths": ["<strength 1>", "<strength 2>"],
-          "areasToImprove": ["<area 1>", "<area 2>"]
+          "feedback": "<detailed, personalized coaching feedback>",
+          "keyStrengths": ["<specific strength with example>", "<specific strength with example>"],
+          "areasToImprove": ["<specific area with actionable advice>", "<specific area with actionable advice>"]
         }
         """
 
@@ -184,8 +194,8 @@ class AzureOpenAIService: ObservableObject {
                 GPTMessage(role: "system", content: systemPrompt),
                 GPTMessage(role: "user", content: userPrompt)
             ],
-            maxTokens: 800,
-            temperature: 1.0,
+            maxTokens: 2000,  // Increased from 800 for detailed, quality feedback
+            temperature: 1.0,  // gpt-5-mini only supports default temperature
             responseFormat: GPTChatRequest.ResponseFormat(type: "json_object")
         )
 
@@ -264,24 +274,57 @@ class AzureOpenAIService: ObservableObject {
 
     /// Calculates a pacing score based on words per minute
     /// - Parameter wpm: Words per minute
-    /// - Returns: Score from 0-100
+    /// - Returns: Score from 0-100 (deterministic - same WPM always returns same score)
     func calculatePacingScore(wpm: Int) -> Int {
+        // Deterministic scoring with linear interpolation
         switch wpm {
         case 130...150:
-            // Ideal pace
-            return Int.random(in: 90...100)
-        case 120..<130, 150...160:
-            // Good pace
-            return Int.random(in: 80...89)
-        case 100..<120, 160...180:
-            // Acceptable pace
-            return Int.random(in: 70...79)
-        case 80..<100, 180...200:
-            // Needs improvement
-            return Int.random(in: 60...69)
+            // Ideal pace: Map 130-150 WPM to 90-100 score linearly
+            let normalized = Double(wpm - 130) / 20.0
+            return 90 + Int(normalized * 10)
+
+        case 120..<130:
+            // Good pace (lower end): Map 120-129 WPM to 85-89 score
+            let normalized = Double(wpm - 120) / 10.0
+            return 85 + Int(normalized * 4)
+
+        case 150...160:
+            // Good pace (upper end): Map 150-160 WPM to 85-89 score
+            let normalized = Double(160 - wpm) / 10.0
+            return 85 + Int(normalized * 4)
+
+        case 100..<120:
+            // Acceptable pace (lower end): Map 100-119 WPM to 75-84 score
+            let normalized = Double(wpm - 100) / 20.0
+            return 75 + Int(normalized * 9)
+
+        case 160...180:
+            // Acceptable pace (upper end): Map 160-180 WPM to 75-84 score
+            let normalized = Double(180 - wpm) / 20.0
+            return 75 + Int(normalized * 9)
+
+        case 80..<100:
+            // Needs improvement (lower end): Map 80-99 WPM to 65-74 score
+            let normalized = Double(wpm - 80) / 20.0
+            return 65 + Int(normalized * 9)
+
+        case 180...200:
+            // Needs improvement (upper end): Map 180-200 WPM to 65-74 score
+            let normalized = Double(200 - wpm) / 20.0
+            return 65 + Int(normalized * 9)
+
         default:
             // Poor pace (too slow or too fast)
-            return Int.random(in: 50...59)
+            if wpm < 80 {
+                // Very slow: map 0-79 to 50-64
+                let normalized = min(1.0, Double(wpm) / 80.0)
+                return 50 + Int(normalized * 14)
+            } else {
+                // Very fast: >200 WPM gets 50-64 based on how extreme
+                let excess = wpm - 200
+                let penalty = min(14, excess / 5)  // -1 point per 5 WPM over 200
+                return max(50, 64 - penalty)
+            }
         }
     }
 
@@ -314,15 +357,22 @@ class AzureOpenAIService: ObservableObject {
         if hasEyeContactData { focusAreas.append("eye contact (camera focus, gaze stability)") }
 
         let systemPrompt = """
-        You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics provided, evaluate the speaker's \(focusAreas.joined(separator: ", ")), then provide constructive coaching feedback.
+        You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics and presentation content provided, evaluate the speaker's \(focusAreas.joined(separator: ", ")) and provide detailed, contextual coaching feedback.
 
         IMPORTANT: Only provide feedback about the metrics that were detected. Do not mention facial expressions if no facial data is available, do not mention posture if no posture data is available, and do not mention eye contact if no eye contact data is available.
 
+        Feedback Quality Guidelines:
+        - Connect body language observations to specific moments in the presentation
+        - Reference the presentation content to make feedback contextual
+        - Provide actionable advice with concrete examples
+        - Match your tone to the presentation's formality and topic
+        - Be specific and helpful, not generic (use as much detail as needed)
+
         Respond ONLY with valid JSON matching this exact structure (no additional text):
         {
-          "gestureFeedback": "<2-3 sentences of personalized coaching feedback about what was detected>",
-          "gestureStrength": "<one specific strength in the detected body language>",
-          "gestureImprovement": "<one specific area to improve in the detected metrics>"
+          "gestureFeedback": "<detailed, contextual coaching feedback about detected body language>",
+          "gestureStrength": "<specific strength with example from the presentation>",
+          "gestureImprovement": "<specific improvement area with actionable advice>"
         }
         """
 
@@ -357,10 +407,15 @@ class AzureOpenAIService: ObservableObject {
             metricsSection += """
             EYE CONTACT METRICS:
             - Camera focus: \(String(format: "%.1f%%", eyeContact.cameraFocusPercentage * 100))
+            - Time reading notes (looking down): \(String(format: "%.1f%%", eyeContact.readingNotesPercentage * 100))
             - Gaze stability: \(String(format: "%.1f%%", eyeContact.gazeStability * 100))
             - Eye contact score: \(eyeContactScore)/100
 
             """
+            
+            if eyeContact.readingNotesPercentage > 0.15 {
+                metricsSection += "NOTE: The speaker frequently looked down, likely reading notes. Address this in the feedback.\n"
+            }
         }
 
         // Build detection note based on what was detected
@@ -383,10 +438,10 @@ class AzureOpenAIService: ObservableObject {
         \(metricsSection)OVERALL GESTURE SCORE: \(gestureMetrics.overallScore)/100
         \(detectionNote)
 
-        PRESENTATION CONTEXT (first 200 chars):
-        "\(String(transcription.prefix(200)))..."
+        FULL PRESENTATION TRANSCRIPTION:
+        "\(transcription)"
 
-        Provide your gesture analysis in JSON format as specified. Only comment on the metrics that were actually detected.
+        Provide your gesture analysis in JSON format as specified. Reference specific moments from the transcription to make your feedback contextual and helpful. Only comment on the metrics that were actually detected.
         """
 
         // Create chat request
@@ -395,8 +450,8 @@ class AzureOpenAIService: ObservableObject {
                 GPTMessage(role: "system", content: systemPrompt),
                 GPTMessage(role: "user", content: userPrompt)
             ],
-            maxTokens: 400,
-            temperature: 1.0,
+            maxTokens: 2000,  // Increased from 1000 for detailed, contextual feedback
+            temperature: 1.0,  // gpt-5-mini only supports default temperature
             responseFormat: GPTChatRequest.ResponseFormat(type: "json_object")
         )
 
@@ -415,7 +470,14 @@ class AzureOpenAIService: ObservableObject {
         // Make request
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        print("💬 Gesture Feedback Response Status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        print("💬 Gesture Feedback Response Status: \(statusCode)")
+        if let rawResponse = String(data: data, encoding: .utf8) {
+            print("💬 Gesture Feedback Raw Response:")
+            print(rawResponse)
+        } else {
+            print("💬 Gesture Feedback Raw Response: Unable to parse")
+        }
 
         do {
             try validateResponse(response, data: data)
@@ -426,18 +488,72 @@ class AzureOpenAIService: ObservableObject {
                 throw AzureAPIError.parseError
             }
 
+            print("💬 Message content from GPT:")
+            print(messageContent)
+
             // Parse gesture analysis JSON from message content
             guard let analysisData = messageContent.data(using: .utf8) else {
                 throw AzureAPIError.parseError
             }
 
+            print("🔍 JSON to decode (gesture):")
+            if let jsonString = String(data: analysisData, encoding: .utf8) {
+                print(jsonString)
+            }
+
             let decoder = JSONDecoder()
-            let analysis = try decoder.decode(GestureAnalysisResponse.self, from: analysisData)
+
+            // Decode the GPT response which won't have isTemplateFallback field
+            // We'll use a temporary struct for decoding then create the proper response
+            struct GPTGestureResponse: Codable {
+                let gestureFeedback: String
+                let gestureStrength: String
+                let gestureImprovement: String
+            }
+
+            let gptResponse = try decoder.decode(GPTGestureResponse.self, from: analysisData)
+
+            // Create the final response with isTemplateFallback set to false (AI-generated)
+            let analysis = GestureAnalysisResponse(
+                gestureFeedback: gptResponse.gestureFeedback,
+                gestureStrength: gptResponse.gestureStrength,
+                gestureImprovement: gptResponse.gestureImprovement,
+                isTemplateFallback: false  // This is AI-generated feedback from GPT
+            )
 
             return analysis
 
         } catch {
-            print("⚠️ Gesture feedback generation failed, using template: \(error)")
+            print("❌ Gesture feedback decode error: \(error)")
+
+            // Log detailed decoding error information
+            if let decodingError = error as? DecodingError {
+                switch decodingError {
+                case .dataCorrupted(let context):
+                    print("   Data corrupted - Context: \(context)")
+                    print("   Coding path: \(context.codingPath)")
+                    print("   Debug description: \(context.debugDescription)")
+                    if let underlyingError = context.underlyingError {
+                        print("   Underlying error: \(underlyingError)")
+                    }
+                case .keyNotFound(let key, let context):
+                    print("   Missing key: \(key)")
+                    print("   Context: \(context)")
+                    print("   Coding path: \(context.codingPath)")
+                case .typeMismatch(let type, let context):
+                    print("   Type mismatch: expected \(type)")
+                    print("   Context: \(context)")
+                    print("   Coding path: \(context.codingPath)")
+                case .valueNotFound(let type, let context):
+                    print("   Value not found: \(type)")
+                    print("   Context: \(context)")
+                    print("   Coding path: \(context.codingPath)")
+                @unknown default:
+                    print("   Unknown decoding error")
+                }
+            }
+
+            print("⚠️ Gesture feedback generation failed, using template")
             // Fallback to template feedback
             return generateTemplateGestureFeedback(for: gestureMetrics)
         }
@@ -568,7 +684,147 @@ class AzureOpenAIService: ObservableObject {
         return GestureAnalysisResponse(
             gestureFeedback: feedback,
             gestureStrength: strength,
-            gestureImprovement: improvement
+            gestureImprovement: improvement,
+            isTemplateFallback: true  // Indicates this is template-based, not AI-generated
         )
+    }
+
+    // MARK: - Vision API (Key Frame Annotation Generation)
+
+    /// Generates contextual key frame annotation using GPT-4o vision API
+    /// - Parameters:
+    ///   - imageData: JPEG image data of the key frame
+    ///   - type: Type of key frame (best/improve)
+    ///   - transcriptionExcerpt: Portion of transcription around this timestamp (~500 chars)
+    ///   - timestamp: Timestamp of the frame in seconds
+    /// - Returns: AI-generated annotation text
+    func generateKeyFrameAnnotation(
+        imageData: Data,
+        type: KeyFrameType,
+        transcriptionExcerpt: String,
+        timestamp: Double
+    ) async throws -> String {
+        print("📸 [VisionAPI] Generating annotation for \(type.rawValue) frame at \(String(format: "%.1f", timestamp))s")
+
+        // Build API endpoint (using GPT deployment which supports vision)
+        let urlString = config.gptURL()
+        guard let url = URL(string: urlString) else {
+            throw AzureAPIError.configurationError
+        }
+
+        // Convert image to base64
+        let base64Image = imageData.base64EncodedString()
+
+        // Build context-aware system prompt
+        let systemPrompt = """
+        You are an expert presentation coach analyzing a specific moment from a presentation. Based on the frame image and transcription context, provide one concise, specific coaching comment (20-40 words).
+
+        Guidelines:
+        - Adapt tone to presentation formality (academic = professional, casual = friendly)
+        - Reference specific visual details (posture, expression, gaze)
+        - Connect to transcription context when relevant
+        - Be specific and actionable, not generic
+        - For "best" frames: highlight what's working well
+        - For "improve" frames: suggest specific improvements
+        """
+
+        // Build type-specific guidance
+        let typeGuidance: String
+        switch type {
+        case .bestFacial:
+            typeGuidance = "This is a STRENGTH moment for facial expression. Highlight what's working well (eye contact, smile, engagement, etc.)."
+        case .bestOverall:
+            typeGuidance = "This is a STRENGTH moment overall. Highlight the combination of good expression, posture, and engagement."
+        case .improveFacial:
+            typeGuidance = "This is an IMPROVEMENT AREA for facial expression. Suggest specific ways to improve engagement, eye contact, or expressiveness."
+        case .improvePosture:
+            typeGuidance = "This is an IMPROVEMENT AREA for posture. Suggest specific ways to improve body position, confidence, or stability."
+        case .improveEyeContact:
+            typeGuidance = "This is an IMPROVEMENT AREA for eye contact. Suggest ways to improve camera focus or gaze consistency."
+        case .averageMoment:
+            typeGuidance = "This is a REPRESENTATIVE moment. Provide neutral, balanced observation."
+        }
+
+        let userPrompt = """
+        Frame type: \(type.rawValue)
+        Timestamp: \(String(format: "%.1f", timestamp))s
+
+        \(typeGuidance)
+
+        Transcription context:
+        "\(transcriptionExcerpt)"
+
+        Analyze this presentation frame and provide ONE concise coaching comment (20-40 words). Return ONLY the annotation text, no JSON, no additional formatting.
+        """
+
+        // Create vision request with image
+        let messages: [[String: Any]] = [
+            [
+                "role": "system",
+                "content": systemPrompt
+            ],
+            [
+                "role": "user",
+                "content": [
+                    [
+                        "type": "text",
+                        "text": userPrompt
+                    ],
+                    [
+                        "type": "image_url",
+                        "image_url": [
+                            "url": "data:image/jpeg;base64,\(base64Image)"
+                        ]
+                    ]
+                ]
+            ]
+        ]
+
+        let requestBody: [String: Any] = [
+            "messages": messages,
+            "max_completion_tokens": 1500,  // Increased to allow for reasoning + output
+            "temperature": 1.0
+        ]
+
+        // Create request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(config.azureAPIKey, forHTTPHeaderField: "api-key")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        request.timeoutInterval = 30
+
+        // Make request
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        print("📸 [VisionAPI] Response status: \(statusCode)")
+
+        try validateResponse(response, data: data)
+
+        // Debug: Print raw response
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("📸 [VisionAPI] Raw response: \(responseString)")
+        }
+
+        // Parse response
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let annotation = message["content"] as? String else {
+            print("❌ [VisionAPI] Failed to parse response - missing expected fields")
+            throw AzureAPIError.parseError
+        }
+
+        print("📸 [VisionAPI] Raw annotation before cleaning: '\(annotation)'")
+
+        // Clean up annotation (remove quotes, extra whitespace)
+        let cleanedAnnotation = annotation
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\"", with: "")
+
+        print("📸 [VisionAPI] Generated annotation: \(cleanedAnnotation)")
+        return cleanedAnnotation
     }
 }

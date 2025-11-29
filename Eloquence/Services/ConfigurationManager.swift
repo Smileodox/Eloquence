@@ -7,8 +7,41 @@
 
 import Foundation
 
+/// Errors that can occur during configuration loading
+enum ConfigurationError: Error {
+    case missingConfigFile
+    case invalidStructure
+    case missingRequiredKeys(section: String, keys: [String])
+    case placeholderValuesDetected
+
+    var userMessage: String {
+        switch self {
+        case .missingConfigFile:
+            return "Configuration file is missing. Please create Config.plist with your Azure OpenAI credentials. See Config.plist.example for template."
+        case .invalidStructure:
+            return "Configuration file structure is invalid. Please check Config.plist format."
+        case .missingRequiredKeys(let section, let keys):
+            return "Missing required configuration in \(section) section: \(keys.joined(separator: ", "))"
+        case .placeholderValuesDetected:
+            return "Please update Config.plist with your actual Azure OpenAI credentials. Current values appear to be placeholders."
+        }
+    }
+}
+
 class ConfigurationManager {
-    static let shared = ConfigurationManager()
+    static let shared: ConfigurationManager = {
+        do {
+            return try ConfigurationManager()
+        } catch let error as ConfigurationError {
+            // In production, you might want to log this error
+            print("⚠️ Configuration Error: \(error.userMessage)")
+            // Return a default instance that will cause errors when used
+            // The app should check for valid configuration before using services
+            fatalError("Unable to load configuration: \(error.userMessage)")
+        } catch {
+            fatalError("Unexpected configuration error: \(error)")
+        }
+    }()
 
     let azureAPIKey: String
     let baseEndpoint: String
@@ -21,52 +54,56 @@ class ConfigurationManager {
     let gptDeployment: String
     let gptAPIVersion: String
 
-    private init() {
+    private init() throws {
+        // Load Config.plist
         guard let path = Bundle.main.path(forResource: "Config", ofType: "plist"),
-              let dict = NSDictionary(contentsOfFile: path),
-              let azureConfig = dict["AzureOpenAI"] as? [String: Any] else {
-            fatalError("""
-                ⚠️ Config.plist not found or invalid.
-                Please create Config.plist in the Eloquence folder with your Azure OpenAI credentials.
-                See Config.plist.example for template.
-                """)
+              let dict = NSDictionary(contentsOfFile: path) else {
+            throw ConfigurationError.missingConfigFile
+        }
+
+        // Get Azure OpenAI section
+        guard let azureConfig = dict["AzureOpenAI"] as? [String: Any] else {
+            throw ConfigurationError.invalidStructure
         }
 
         // Read top-level keys
         guard let apiKey = azureConfig["APIKey"] as? String,
-              let endpoint = azureConfig["BaseEndpoint"] as? String,
-              let whisperConfig = azureConfig["Whisper"] as? [String: String],
+              let endpoint = azureConfig["BaseEndpoint"] as? String else {
+            throw ConfigurationError.missingRequiredKeys(
+                section: "AzureOpenAI",
+                keys: ["APIKey", "BaseEndpoint"]
+            )
+        }
+
+        guard let whisperConfig = azureConfig["Whisper"] as? [String: String],
               let gptConfig = azureConfig["GPT"] as? [String: String] else {
-            fatalError("""
-                ⚠️ Missing required Azure configuration in Config.plist.
-                Required keys: APIKey, BaseEndpoint, Whisper (dict), GPT (dict)
-                """)
+            throw ConfigurationError.missingRequiredKeys(
+                section: "AzureOpenAI",
+                keys: ["Whisper (dict)", "GPT (dict)"]
+            )
         }
 
         // Read Whisper configuration
         guard let whisperDeployment = whisperConfig["DeploymentName"],
               let whisperAPIVersion = whisperConfig["APIVersion"] else {
-            fatalError("""
-                ⚠️ Missing Whisper configuration in Config.plist.
-                Required keys in Whisper section: DeploymentName, APIVersion
-                """)
+            throw ConfigurationError.missingRequiredKeys(
+                section: "Whisper",
+                keys: ["DeploymentName", "APIVersion"]
+            )
         }
 
         // Read GPT configuration
         guard let gptDeployment = gptConfig["DeploymentName"],
               let gptAPIVersion = gptConfig["APIVersion"] else {
-            fatalError("""
-                ⚠️ Missing GPT configuration in Config.plist.
-                Required keys in GPT section: DeploymentName, APIVersion
-                """)
+            throw ConfigurationError.missingRequiredKeys(
+                section: "GPT",
+                keys: ["DeploymentName", "APIVersion"]
+            )
         }
 
         // Validate that placeholders have been replaced
         if apiKey.contains("YOUR_") || endpoint.contains("YOUR_") {
-            fatalError("""
-                ⚠️ Please update Config.plist with your actual Azure OpenAI credentials.
-                Current values appear to be placeholders.
-                """)
+            throw ConfigurationError.placeholderValuesDetected
         }
 
         self.azureAPIKey = apiKey

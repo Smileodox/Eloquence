@@ -9,6 +9,7 @@ import SwiftUI
 
 struct KeyFrameCard: View {
     let keyFrame: KeyFrame
+    @State private var isExpanded = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -51,18 +52,32 @@ struct KeyFrameCard: View {
                     .font(.system(size: 13))
                     .foregroundStyle(Color.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .lineLimit(3)
+                    .lineLimit(isExpanded ? nil : 3)
 
-                // Primary metric label
-                Text(keyFrame.primaryMetric)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.textMuted)
-                    .padding(.top, 2)
+                // Footer row: Metric + Expansion Indicator
+                HStack {
+                    Text(keyFrame.primaryMetric)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.textMuted)
+                    
+                    Spacer()
+                    
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.textMuted)
+                }
+                .padding(.top, 4)
             }
         }
         .padding(12)
         .background(Color.bg)
         .cornerRadius(8)
+        .contentShape(Rectangle()) // Ensure tap works on empty space
+        .onTapGesture {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                isExpanded.toggle()
+            }
+        }
     }
 
     private func formatTimestamp(_ seconds: Double) -> String {
