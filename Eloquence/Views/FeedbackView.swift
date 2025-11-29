@@ -19,278 +19,16 @@ struct FeedbackView: View {
     
     var body: some View {
         ZStack {
-            // Background
-            Color.bg
-                .ignoresSafeArea()
-            
+            Color.bg.ignoresSafeArea()
+
             ScrollView {
                 VStack(spacing: Theme.largeSpacing) {
-                    // Header
-                    VStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.success.opacity(0.2))
-                                .frame(width: 80, height: 80)
-                            
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 50))
-                                .foregroundStyle(Color.success)
-                        }
-                        .scaleEffect(showCelebration ? 1.0 : 0.5)
-                        .opacity(showCelebration ? 1.0 : 0.0)
-                        .animation(.spring(response: 0.6, dampingFraction: 0.6), value: showCelebration)
-                        
-                        Text("Your AI Feedback")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color.textPrimary)
-                        
-                        Text("Session completed at \(formattedDate)")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color.textMuted)
-                    }
-                    .padding(.top, Theme.largeSpacing)
-                    
-                    // Overall score
-                    VStack(spacing: Theme.spacing) {
-                        Text("Overall Score")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.textMuted)
-                        
-                        ZStack {
-                            Circle()
-                                .stroke(Color.border, lineWidth: 12)
-                                .frame(width: 140, height: 140)
-                            
-                            Circle()
-                                .trim(from: 0, to: CGFloat(session.averageScore) / 100)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [.primary, .secondary],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    style: StrokeStyle(lineWidth: 12, lineCap: .round)
-                                )
-                                .frame(width: 140, height: 140)
-                                .rotationEffect(.degrees(-90))
-                            
-                            VStack(spacing: 4) {
-                                Text("\(session.averageScore)")
-                                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                                    .foregroundStyle(Color.textPrimary)
-                                
-                                Text("out of 100")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(Color.textMuted)
-                            }
-                        }
-                    }
-                    .padding(Theme.largeSpacing)
-                    .background(Color.bgLight)
-                    .cornerRadius(Theme.cornerRadius)
-                    .padding(.horizontal, Theme.largeSpacing)
-                    
-                    // Individual scores
-                    VStack(spacing: Theme.spacing) {
-                        Text("Detailed Analysis")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(Color.textPrimary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        ScoreCard(title: "Tone", score: session.toneScore, icon: "waveform", color: .primary)
-                        ScoreCard(title: "Pacing", score: session.pacingScore, icon: "speedometer", color: .secondary)
-
-                        // Gestures with detailed breakdown
-                        VStack(alignment: .leading, spacing: Theme.spacing) {
-                            ScoreCard(title: "Gestures", score: session.gesturesScore, icon: "figure.wave", color: .info)
-
-                            // Gesture sub-scores breakdown
-                            if session.facialScore != nil || session.postureScore != nil {
-                                DisclosureGroup {
-                                    VStack(spacing: 12) {
-                                        if let facialScore = session.facialScore {
-                                            SubScoreRow(
-                                                icon: "face.smiling",
-                                                label: "Facial Expression",
-                                                score: facialScore,
-                                                color: .info
-                                            )
-                                        }
-
-                                        if let postureScore = session.postureScore {
-                                            SubScoreRow(
-                                                icon: "figure.stand",
-                                                label: "Body Posture",
-                                                score: postureScore,
-                                                color: .info
-                                            )
-                                        }
-
-                                        if let eyeContactScore = session.eyeContactScore {
-                                            SubScoreRow(
-                                                icon: "eye",
-                                                label: "Eye Contact",
-                                                score: eyeContactScore,
-                                                color: .info
-                                            )
-                                        }
-
-                                        // Placeholders for Phase 2
-                                        SubScoreRow(
-                                            icon: "hand.raised",
-                                            label: "Hand Gestures",
-                                            score: nil,
-                                            color: .textMuted,
-                                            placeholder: "Coming in Phase 2"
-                                        )
-
-                                        if session.eyeContactScore == nil {
-                                            SubScoreRow(
-                                                icon: "eye",
-                                                label: "Eye Contact",
-                                                score: nil,
-                                                color: .textMuted,
-                                                placeholder: "Not detected in this session"
-                                            )
-                                        }
-                                    }
-                                    .padding(.top, 8)
-                                } label: {
-                                    HStack {
-                                        Text("View Gesture Details")
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(Color.primary)
-
-                                        Spacer()
-
-                                        Image(systemName: "chevron.down")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(Color.primary)
-                                    }
-                                }
-                                .tint(.primary)
-                            }
-                        }
-                    }
-                    .padding(Theme.largeSpacing)
-                    .background(Color.bgLight)
-                    .cornerRadius(Theme.cornerRadius)
-                    .padding(.horizontal, Theme.largeSpacing)
-                    
-                    // AI Feedback
-                    VStack(alignment: .leading, spacing: Theme.spacing) {
-                        HStack {
-                            Image(systemName: "sparkles")
-                                .foregroundStyle(.primary)
-                            
-                            Text("AI Insights")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(Color.textPrimary)
-                        }
-                        
-                        Text(session.feedback.isEmpty ? "Great job on completing this practice session!" : session.feedback)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(Color.textMuted)
-                            .lineSpacing(4)
-                    }
-                    .padding(Theme.largeSpacing)
-                    .background(Color.bgLight)
-                    .cornerRadius(Theme.cornerRadius)
-                    .padding(.horizontal, Theme.largeSpacing)
-
-                    // Visual Highlights Section
-                    if let keyFrames = session.keyFrames, !keyFrames.isEmpty {
-                        VStack(alignment: .leading, spacing: Theme.mediumSpacing) {
-                            HStack {
-                                Image(systemName: "photo.on.rectangle.angled")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(Color.primary)
-
-                                Text("Visual Highlights")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundStyle(Color.textPrimary)
-                            }
-
-                            // Positive frames
-                            let positiveFrames = keyFrames.filter { $0.isPositive }
-                            if !positiveFrames.isEmpty {
-                                Text("Your Strengths")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Color.textMuted)
-                                    .padding(.top, 4)
-
-                                ForEach(positiveFrames) { keyFrame in
-                                    KeyFrameCard(keyFrame: keyFrame)
-                                }
-                            }
-
-                            // Improvement frames
-                            let improvementFrames = keyFrames.filter { !$0.isPositive }
-                            if !improvementFrames.isEmpty {
-                                Text("Areas to Improve")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Color.textMuted)
-                                    .padding(.top, improvementFrames.isEmpty ? 4 : 12)
-
-                                ForEach(improvementFrames) { keyFrame in
-                                    KeyFrameCard(keyFrame: keyFrame)
-                                }
-                            }
-                        }
-                        .padding(Theme.largeSpacing)
-                        .background(Color.bgLight)
-                        .cornerRadius(Theme.cornerRadius)
-                        .padding(.horizontal, Theme.largeSpacing)
-                    }
-
-                    // Action buttons
-                    VStack(spacing: Theme.spacing) {
-                        NavigationLink(destination: RecordingView()) {
-                            HStack {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 20))
-                                
-                                Text("Try Again")
-                                    .font(.system(size: 18, weight: .semibold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: Theme.buttonHeight)
-                            .foregroundStyle(Color.bg)
-                            .background(.primary)
-                            .cornerRadius(Theme.cornerRadius)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        NavigationLink(destination: ProgressView()) {
-                            HStack {
-                                Image(systemName: "chart.line.uptrend.xyaxis")
-                                    .font(.system(size: 20))
-                                
-                                Text("View Progress")
-                                    .font(.system(size: 18, weight: .semibold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: Theme.buttonHeight)
-                            .foregroundStyle(Color.textPrimary)
-                            .background(Color.bgLight)
-                            .cornerRadius(Theme.cornerRadius)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Theme.cornerRadius)
-                                    .stroke(Color.border, lineWidth: 2)
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        Button(action: {
-                            showNameRecordingAlert = true
-                        }) {
-                            Text("Back to Dashboard")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color.textMuted)
-                        }
-                    }
-                    .padding(.horizontal, Theme.largeSpacing)
-                    .padding(.bottom, Theme.largeSpacing)
+                    headerSection
+                    overallScoreSection
+                    detailedAnalysisSection
+                    aiFeedbackSection
+                    visualHighlightsSection
+                    actionButtonsSection
                 }
             }
         }
@@ -300,7 +38,6 @@ struct FeedbackView: View {
         }
         .onAppear {
             showCelebration = true
-            // Only add session if it doesn't already exist (check by ID)
             if !userSession.sessions.contains(where: { $0.id == session.id }) {
                 userSession.addSession(session)
             }
@@ -315,6 +52,291 @@ struct FeedbackView: View {
         } message: {
             Text("Enter a name for this recording")
         }
+    }
+
+    // MARK: - View Components
+
+    private var headerSection: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.success.opacity(0.2))
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 50))
+                    .foregroundStyle(Color.success)
+            }
+            .scaleEffect(showCelebration ? 1.0 : 0.5)
+            .opacity(showCelebration ? 1.0 : 0.0)
+            .animation(.spring(response: 0.6, dampingFraction: 0.6), value: showCelebration)
+
+            Text("Your AI Feedback")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.textPrimary)
+
+            Text("Session completed at \(formattedDate)")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color.textMuted)
+        }
+        .padding(.top, Theme.largeSpacing)
+    }
+
+    private var overallScoreSection: some View {
+        VStack(spacing: Theme.spacing) {
+            Text("Overall Score")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.textMuted)
+
+            ZStack {
+                Circle()
+                    .stroke(Color.border, lineWidth: 12)
+                    .frame(width: 140, height: 140)
+
+                Circle()
+                    .trim(from: 0, to: CGFloat(session.averageScore) / 100)
+                    .stroke(
+                        LinearGradient(
+                            colors: [.primary, .secondary],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        style: StrokeStyle(lineWidth: 12, lineCap: .round)
+                    )
+                    .frame(width: 140, height: 140)
+                    .rotationEffect(.degrees(-90))
+
+                VStack(spacing: 4) {
+                    Text("\(session.averageScore)")
+                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.textPrimary)
+
+                    Text("out of 100")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.textMuted)
+                }
+            }
+        }
+        .padding(Theme.largeSpacing)
+        .background(Color.bgLight)
+        .cornerRadius(Theme.cornerRadius)
+        .padding(.horizontal, Theme.largeSpacing)
+    }
+
+    private var detailedAnalysisSection: some View {
+        VStack(spacing: Theme.spacing) {
+            Text("Detailed Analysis")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ScoreCard(title: "Tone", score: session.toneScore, icon: "waveform", color: .primary)
+            ScoreCard(title: "Pacing", score: session.pacingScore, icon: "speedometer", color: .secondary)
+            gestureScoreSection
+        }
+        .padding(Theme.largeSpacing)
+        .background(Color.bgLight)
+        .cornerRadius(Theme.cornerRadius)
+        .padding(.horizontal, Theme.largeSpacing)
+    }
+
+    private var gestureScoreSection: some View {
+        VStack(alignment: .leading, spacing: Theme.spacing) {
+            ScoreCard(title: "Gestures", score: session.gesturesScore, icon: "figure.wave", color: .info)
+
+            if session.facialScore != nil || session.postureScore != nil {
+                gestureDetailsDisclosure
+            }
+        }
+    }
+
+    private var gestureDetailsDisclosure: some View {
+        DisclosureGroup {
+            VStack(spacing: 12) {
+                if let facialScore = session.facialScore {
+                    SubScoreRow(
+                        icon: "face.smiling",
+                        label: "Facial Expression",
+                        score: facialScore,
+                        color: .info
+                    )
+                }
+
+                if let postureScore = session.postureScore {
+                    SubScoreRow(
+                        icon: "figure.stand",
+                        label: "Body Posture",
+                        score: postureScore,
+                        color: .info
+                    )
+                }
+
+                if let eyeContactScore = session.eyeContactScore {
+                    SubScoreRow(
+                        icon: "eye",
+                        label: "Eye Contact",
+                        score: eyeContactScore,
+                        color: .info
+                    )
+                }
+
+                SubScoreRow(
+                    icon: "hand.raised",
+                    label: "Hand Gestures",
+                    score: nil,
+                    color: .textMuted,
+                    placeholder: "Coming in Phase 2"
+                )
+
+                if session.eyeContactScore == nil {
+                    SubScoreRow(
+                        icon: "eye",
+                        label: "Eye Contact",
+                        score: nil,
+                        color: .textMuted,
+                        placeholder: "Not detected in this session"
+                    )
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            HStack {
+                Text("View Gesture Details")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color.primary)
+
+                Spacer()
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.primary)
+            }
+        }
+        .tint(.primary)
+    }
+
+    private var aiFeedbackSection: some View {
+        VStack(alignment: .leading, spacing: Theme.spacing) {
+            HStack {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.primary)
+
+                Text("AI Insights")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color.textPrimary)
+            }
+
+            Text(session.feedback.isEmpty ? "Great job on completing this practice session!" : session.feedback)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.textMuted)
+                .lineSpacing(4)
+        }
+        .padding(Theme.largeSpacing)
+        .background(Color.bgLight)
+        .cornerRadius(Theme.cornerRadius)
+        .padding(.horizontal, Theme.largeSpacing)
+    }
+
+    @ViewBuilder
+    private var visualHighlightsSection: some View {
+        if let keyFrames = session.keyFrames, !keyFrames.isEmpty {
+            VStack(alignment: .leading, spacing: Theme.spacing) {
+                HStack {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color.primary)
+
+                    Text("Visual Highlights")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color.textPrimary)
+                }
+
+                keyFramesContent(keyFrames)
+            }
+            .padding(Theme.largeSpacing)
+            .background(Color.bgLight)
+            .cornerRadius(Theme.cornerRadius)
+            .padding(.horizontal, Theme.largeSpacing)
+        }
+    }
+
+    private func keyFramesContent(_ keyFrames: [KeyFrame]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            let positiveFrames = keyFrames.filter { $0.isPositive }
+            let improvementFrames = keyFrames.filter { !$0.isPositive }
+
+            if !positiveFrames.isEmpty {
+                Text("Your Strengths")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.textMuted)
+                    .padding(.top, 4)
+
+                ForEach(positiveFrames) { keyFrame in
+                    KeyFrameCard(keyFrame: keyFrame)
+                }
+            }
+
+            if !improvementFrames.isEmpty {
+                Text("Areas to Improve")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.textMuted)
+                    .padding(.top, !positiveFrames.isEmpty ? 12 : 4)
+
+                ForEach(improvementFrames) { keyFrame in
+                    KeyFrameCard(keyFrame: keyFrame)
+                }
+            }
+        }
+    }
+
+    private var actionButtonsSection: some View {
+        VStack(spacing: Theme.spacing) {
+            NavigationLink(destination: RecordingView()) {
+                HStack {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 20))
+
+                    Text("Try Again")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: Theme.buttonHeight)
+                .foregroundStyle(Color.bg)
+                .background(.primary)
+                .cornerRadius(Theme.cornerRadius)
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            NavigationLink(destination: ProgressView()) {
+                HStack {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 20))
+
+                    Text("View Progress")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: Theme.buttonHeight)
+                .foregroundStyle(Color.textPrimary)
+                .background(Color.bgLight)
+                .cornerRadius(Theme.cornerRadius)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.cornerRadius)
+                        .stroke(Color.border, lineWidth: 2)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Button(action: {
+                showNameRecordingAlert = true
+            }) {
+                Text("Back to Dashboard")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.textMuted)
+            }
+        }
+        .padding(.horizontal, Theme.largeSpacing)
+        .padding(.bottom, Theme.largeSpacing)
     }
     
     private func saveRecordingName() {
