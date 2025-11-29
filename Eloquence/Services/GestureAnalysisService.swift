@@ -10,6 +10,7 @@ import AVFoundation
 import Vision
 import CoreImage
 import Accelerate
+import UIKit
 
 class GestureAnalysisService: ObservableObject {
 
