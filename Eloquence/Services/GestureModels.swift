@@ -17,6 +17,7 @@ struct GestureMetrics {
     let facialScore: Int
     let postureScore: Int
     let eyeContactScore: Int?  // Nil if face not detected
+    let keyFrames: [KeyFrame]  // Visual highlights from the presentation
 }
 
 struct FacialMetrics {
@@ -101,4 +102,39 @@ enum GestureAnalysisError: Error {
             return "Video format not supported. Please record using the app's built-in recorder."
         }
     }
+}
+
+// MARK: - Key Frame Models
+
+/// Represents a significant moment in the presentation with visual feedback
+struct KeyFrame: Codable, Identifiable {
+    let id: UUID
+    let image: Data              // JPEG compressed image data
+    let timestamp: Double         // Seconds into the video
+    let type: KeyFrameType
+    let primaryMetric: String     // "Facial Expression", "Posture", "Eye Contact", "Overall"
+    let score: Int                // 0-100 score for this specific frame
+    let annotation: String        // Auto-generated coaching comment
+    let isPositive: Bool          // true = strength highlight, false = improvement area
+
+    init(id: UUID = UUID(), image: Data, timestamp: Double, type: KeyFrameType, primaryMetric: String, score: Int, annotation: String, isPositive: Bool) {
+        self.id = id
+        self.image = image
+        self.timestamp = timestamp
+        self.type = type
+        self.primaryMetric = primaryMetric
+        self.score = score
+        self.annotation = annotation
+        self.isPositive = isPositive
+    }
+}
+
+/// Types of key frames that can be extracted from analysis
+enum KeyFrameType: String, Codable {
+    case bestFacial = "best_facial"           // Best facial expression moment
+    case bestOverall = "best_overall"         // Best combined gesture moment
+    case improveFacial = "improve_facial"     // Facial expression needs work
+    case improvePosture = "improve_posture"   // Posture needs improvement
+    case improveEyeContact = "improve_eye_contact"  // Eye contact needs work
+    case averageMoment = "average_moment"     // Representative average frame
 }

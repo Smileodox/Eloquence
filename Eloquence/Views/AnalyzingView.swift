@@ -320,7 +320,8 @@ struct AnalyzingView: View {
             gestureImprovement: gestureAnalysis.gestureImprovement,
             facialScore: gestureMetrics.facialScore,
             postureScore: gestureMetrics.postureScore,
-            eyeContactScore: gestureMetrics.eyeContactScore
+            eyeContactScore: gestureMetrics.eyeContactScore,
+            keyFrames: gestureMetrics.keyFrames
         )
     }
     

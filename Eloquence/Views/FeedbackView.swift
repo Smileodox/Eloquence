@@ -197,7 +197,52 @@ struct FeedbackView: View {
                     .background(Color.bgLight)
                     .cornerRadius(Theme.cornerRadius)
                     .padding(.horizontal, Theme.largeSpacing)
-                    
+
+                    // Visual Highlights Section
+                    if let keyFrames = session.keyFrames, !keyFrames.isEmpty {
+                        VStack(alignment: .leading, spacing: Theme.mediumSpacing) {
+                            HStack {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(Color.primary)
+
+                                Text("Visual Highlights")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(Color.textPrimary)
+                            }
+
+                            // Positive frames
+                            let positiveFrames = keyFrames.filter { $0.isPositive }
+                            if !positiveFrames.isEmpty {
+                                Text("Your Strengths")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color.textMuted)
+                                    .padding(.top, 4)
+
+                                ForEach(positiveFrames) { keyFrame in
+                                    KeyFrameCard(keyFrame: keyFrame)
+                                }
+                            }
+
+                            // Improvement frames
+                            let improvementFrames = keyFrames.filter { !$0.isPositive }
+                            if !improvementFrames.isEmpty {
+                                Text("Areas to Improve")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color.textMuted)
+                                    .padding(.top, improvementFrames.isEmpty ? 4 : 12)
+
+                                ForEach(improvementFrames) { keyFrame in
+                                    KeyFrameCard(keyFrame: keyFrame)
+                                }
+                            }
+                        }
+                        .padding(Theme.largeSpacing)
+                        .background(Color.bgLight)
+                        .cornerRadius(Theme.cornerRadius)
+                        .padding(.horizontal, Theme.largeSpacing)
+                    }
+
                     // Action buttons
                     VStack(spacing: Theme.spacing) {
                         NavigationLink(destination: RecordingView()) {

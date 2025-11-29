@@ -33,11 +33,15 @@ class GestureAnalysisService: ObservableObject {
         async let facialTask = analyzeFacialExpressions(in: frames)
         async let postureTask = analyzeBodyPosture(in: frames)
 
-        let (facialResult, postureMetrics) = await (facialTask, postureTask)
+        let (facialResult, postureResult) = await (facialTask, postureTask)
 
         // Extract facial metrics and frames
         let facialMetrics = facialResult?.0
         let facialFrames = facialResult?.1 ?? []
+
+        // Extract posture metrics and frames
+        let postureMetrics = postureResult?.0
+        let postureFrames = postureResult?.1 ?? []
 
         // Check if we have ANY data to work with
         guard facialMetrics != nil || postureMetrics != nil else {
@@ -61,6 +65,16 @@ class GestureAnalysisService: ObservableObject {
             eyeContactMetrics: eyeContactMetrics
         )
 
+        // Step 5: Select key frames for visual feedback
+        let keyFrames = selectKeyFrames(
+            from: facialFrames,
+            postureFrames: postureFrames,
+            videoFrames: frames,
+            facialScore: facialScore,
+            postureScore: postureScore,
+            eyeContactScore: eyeContactScore
+        )
+
         // Log what was detected
         var logComponents: [String] = []
         if let facial = facialScore { logComponents.append("Facial: \(facial)") }
@@ -76,7 +90,8 @@ class GestureAnalysisService: ObservableObject {
             overallScore: overallScore,
             facialScore: facialScore ?? 0,
             postureScore: postureScore ?? 0,
-            eyeContactScore: eyeContactScore
+            eyeContactScore: eyeContactScore,
+            keyFrames: keyFrames
         )
     }
 
@@ -404,7 +419,7 @@ class GestureAnalysisService: ObservableObject {
     /// Analyzes body posture across all frames
     /// - Parameter frames: Array of video frames
     /// - Returns: Posture metrics aggregated across all frames, or nil if insufficient data
-    private func analyzeBodyPosture(in frames: [CVPixelBuffer]) async -> PostureMetrics? {
+    private func analyzeBodyPosture(in frames: [CVPixelBuffer]) async -> (PostureMetrics, [PostureFrame])? {
         print("🧍 Analyzing body posture...")
 
         var postureFrames: [PostureFrame] = []
@@ -445,13 +460,15 @@ class GestureAnalysisService: ObservableObject {
         // Stability is balance of movement
         let stabilityScore = calculateStability(variance: movementVariance)
 
-        return PostureMetrics(
+        let metrics = PostureMetrics(
             averageConfidence: averageConfidence,
             movementConsistency: movementConsistency,
             stabilityScore: stabilityScore,
             framesAnalyzed: framesWithBody,
             totalFrames: frames.count
         )
+
+        return (metrics, postureFrames)
     }
 
     /// Analyzes a single frame for body posture
@@ -648,6 +665,383 @@ class GestureAnalysisService: ObservableObject {
     /// Calculates distance between two CGPoints
     private func distance(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
         return sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2))
+    }
+
+    // MARK: - Key Frame Selection
+
+    /// Selects 2-6 key frames from the analysis to provide visual feedback
+    private func selectKeyFrames(
+        from facialFrames: [FacialFrame],
+        postureFrames: [PostureFrame],
+        videoFrames: [CVPixelBuffer],
+        facialScore: Int?,
+        postureScore: Int?,
+        eyeContactScore: Int?
+    ) -> [KeyFrame] {
+        print("🖼️ Selecting key frames for visual feedback...")
+
+        var keyFrames: [KeyFrame] = []
+        let frameInterval = 0.5 // 2 FPS = 0.5s per frame
+
+        // Track which frame indices we've already used to avoid duplicates
+        var usedIndices = Set<Int>()
+
+        // 1. Try to find best facial expression frame
+        if let idx = findBestFacialFrameIndex(facialFrames), idx < videoFrames.count {
+            if let frame = createKeyFrame(
+                from: videoFrames[idx],
+                facialFrame: facialFrames[idx],
+                postureFrame: idx < postureFrames.count ? postureFrames[idx] : nil,
+                index: idx,
+                type: .bestFacial,
+                timestamp: Double(idx) * frameInterval,
+                facialScore: facialScore,
+                postureScore: postureScore,
+                eyeContactScore: eyeContactScore
+            ) {
+                keyFrames.append(frame)
+                usedIndices.insert(idx)
+            }
+        }
+
+        // 2. Try to find best overall moment (requires both face and body)
+        if !facialFrames.isEmpty && !postureFrames.isEmpty {
+            if let idx = findBestOverallFrameIndex(facialFrames, postureFrames, usedIndices), idx < videoFrames.count {
+                if let frame = createKeyFrame(
+                    from: videoFrames[idx],
+                    facialFrame: idx < facialFrames.count ? facialFrames[idx] : nil,
+                    postureFrame: idx < postureFrames.count ? postureFrames[idx] : nil,
+                    index: idx,
+                    type: .bestOverall,
+                    timestamp: Double(idx) * frameInterval,
+                    facialScore: facialScore,
+                    postureScore: postureScore,
+                    eyeContactScore: eyeContactScore
+                ) {
+                    keyFrames.append(frame)
+                    usedIndices.insert(idx)
+                }
+            }
+        }
+
+        // 3. Find improvement area: facial expression
+        if !facialFrames.isEmpty, let facialScore = facialScore, facialScore < 85 {
+            if let idx = findWorstFacialFrameIndex(facialFrames, usedIndices), idx < videoFrames.count {
+                if let frame = createKeyFrame(
+                    from: videoFrames[idx],
+                    facialFrame: facialFrames[idx],
+                    postureFrame: idx < postureFrames.count ? postureFrames[idx] : nil,
+                    index: idx,
+                    type: .improveFacial,
+                    timestamp: Double(idx) * frameInterval,
+                    facialScore: facialScore,
+                    postureScore: postureScore,
+                    eyeContactScore: eyeContactScore
+                ) {
+                    keyFrames.append(frame)
+                    usedIndices.insert(idx)
+                }
+            }
+        }
+
+        // 4. Find improvement area: posture
+        if !postureFrames.isEmpty, let postureScore = postureScore, postureScore < 85 {
+            if let idx = findWorstPostureFrameIndex(postureFrames, usedIndices), idx < videoFrames.count {
+                if let frame = createKeyFrame(
+                    from: videoFrames[idx],
+                    facialFrame: idx < facialFrames.count ? facialFrames[idx] : nil,
+                    postureFrame: postureFrames[idx],
+                    index: idx,
+                    type: .improvePosture,
+                    timestamp: Double(idx) * frameInterval,
+                    facialScore: facialScore,
+                    postureScore: postureScore,
+                    eyeContactScore: eyeContactScore
+                ) {
+                    keyFrames.append(frame)
+                    usedIndices.insert(idx)
+                }
+            }
+        }
+
+        // 5. If we have < 4 frames and eye contact issues, add eye contact improvement
+        if keyFrames.count < 4, !facialFrames.isEmpty, let eyeContactScore = eyeContactScore, eyeContactScore < 70 {
+            if let idx = findWorstEyeContactFrameIndex(facialFrames, usedIndices), idx < videoFrames.count {
+                if let frame = createKeyFrame(
+                    from: videoFrames[idx],
+                    facialFrame: facialFrames[idx],
+                    postureFrame: idx < postureFrames.count ? postureFrames[idx] : nil,
+                    index: idx,
+                    type: .improveEyeContact,
+                    timestamp: Double(idx) * frameInterval,
+                    facialScore: facialScore,
+                    postureScore: postureScore,
+                    eyeContactScore: eyeContactScore
+                ) {
+                    keyFrames.append(frame)
+                    usedIndices.insert(idx)
+                }
+            }
+        }
+
+        // 6. If still < 2 frames, add an average representative frame
+        if keyFrames.count < 2 && !videoFrames.isEmpty {
+            let midIdx = videoFrames.count / 2
+            if !usedIndices.contains(midIdx) {
+                if let frame = createKeyFrame(
+                    from: videoFrames[midIdx],
+                    facialFrame: midIdx < facialFrames.count ? facialFrames[midIdx] : nil,
+                    postureFrame: midIdx < postureFrames.count ? postureFrames[midIdx] : nil,
+                    index: midIdx,
+                    type: .averageMoment,
+                    timestamp: Double(midIdx) * frameInterval,
+                    facialScore: facialScore,
+                    postureScore: postureScore,
+                    eyeContactScore: eyeContactScore
+                ) {
+                    keyFrames.append(frame)
+                }
+            }
+        }
+
+        print("🖼️ Selected \(keyFrames.count) key frames")
+        return keyFrames
+    }
+
+    /// Finds the index of the best facial expression frame
+    private func findBestFacialFrameIndex(_ frames: [FacialFrame]) -> Int? {
+        guard !frames.isEmpty else { return nil }
+
+        let scores = frames.enumerated().map { (index, frame) -> (Int, Double) in
+            let score = (frame.smiling ? 0.4 : 0.0) +
+                       (frame.expressiveness * 0.3) +
+                       (frame.engagement * 0.3)
+            return (index, score)
+        }
+
+        return scores.max(by: { $0.1 < $1.1 })?.0
+    }
+
+    /// Finds the index of the best overall gesture frame (face + posture)
+    private func findBestOverallFrameIndex(_ facialFrames: [FacialFrame], _ postureFrames: [PostureFrame], _ usedIndices: Set<Int>) -> Int? {
+        let maxCount = min(facialFrames.count, postureFrames.count)
+        guard maxCount > 0 else { return nil }
+
+        let scores = (0..<maxCount).map { index -> (Int, Double) in
+            guard !usedIndices.contains(index) else { return (index, -1.0) }
+
+            let facialScore = (facialFrames[index].smiling ? 0.3 : 0.0) +
+                            (facialFrames[index].expressiveness * 0.2) +
+                            (facialFrames[index].engagement * 0.2) +
+                            (facialFrames[index].lookingAtCamera ? 0.1 : 0.0)
+            let postureScore = postureFrames[index].confidence * 0.2
+
+            return (index, facialScore + postureScore)
+        }
+
+        let best = scores.max(by: { $0.1 < $1.1 })
+        return (best?.1 ?? 0) > 0 ? best?.0 : nil
+    }
+
+    /// Finds the index of the worst facial expression frame (for improvement feedback)
+    private func findWorstFacialFrameIndex(_ frames: [FacialFrame], _ usedIndices: Set<Int>) -> Int? {
+        guard !frames.isEmpty else { return nil }
+
+        let scores = frames.enumerated().compactMap { (index, frame) -> (Int, Double)? in
+            guard !usedIndices.contains(index) else { return nil }
+
+            let score = (frame.smiling ? 0.4 : 0.0) +
+                       (frame.expressiveness * 0.3) +
+                       (frame.engagement * 0.3)
+            return (index, score)
+        }
+
+        return scores.min(by: { $0.1 < $1.1 })?.0
+    }
+
+    /// Finds the index of the worst posture frame
+    private func findWorstPostureFrameIndex(_ frames: [PostureFrame], _ usedIndices: Set<Int>) -> Int? {
+        guard !frames.isEmpty else { return nil }
+
+        let scores = frames.enumerated().compactMap { (index, frame) -> (Int, Double)? in
+            guard !usedIndices.contains(index) else { return nil }
+            return (index, frame.confidence)
+        }
+
+        return scores.min(by: { $0.1 < $1.1 })?.0
+    }
+
+    /// Finds the index of the worst eye contact frame
+    private func findWorstEyeContactFrameIndex(_ frames: [FacialFrame], _ usedIndices: Set<Int>) -> Int? {
+        guard !frames.isEmpty else { return nil }
+
+        // Find frames where NOT looking at camera
+        let scores = frames.enumerated().compactMap { (index, frame) -> (Int, Double)? in
+            guard !usedIndices.contains(index) else { return nil }
+            return (index, frame.lookingAtCamera ? 1.0 : 0.0)
+        }
+
+        return scores.min(by: { $0.1 < $1.1 })?.0
+    }
+
+    /// Creates a KeyFrame from a pixel buffer with annotation
+    private func createKeyFrame(
+        from pixelBuffer: CVPixelBuffer,
+        facialFrame: FacialFrame?,
+        postureFrame: PostureFrame?,
+        index: Int,
+        type: KeyFrameType,
+        timestamp: Double,
+        facialScore: Int?,
+        postureScore: Int?,
+        eyeContactScore: Int?
+    ) -> KeyFrame? {
+        // Convert CVPixelBuffer to UIImage
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+            return nil
+        }
+        let uiImage = UIImage(cgImage: cgImage)
+
+        // Compress to JPEG (quality 0.6 for ~30-50KB)
+        guard let imageData = uiImage.jpegData(compressionQuality: 0.6) else {
+            return nil
+        }
+
+        // Generate annotation and score
+        let (annotation, primaryMetric, isPositive) = generateAnnotation(
+            type: type,
+            facialFrame: facialFrame,
+            postureFrame: postureFrame
+        )
+
+        let frameScore = calculateFrameScore(
+            type: type,
+            facialFrame: facialFrame,
+            postureFrame: postureFrame,
+            facialScore: facialScore,
+            postureScore: postureScore,
+            eyeContactScore: eyeContactScore
+        )
+
+        return KeyFrame(
+            image: imageData,
+            timestamp: timestamp,
+            type: type,
+            primaryMetric: primaryMetric,
+            score: frameScore,
+            annotation: annotation,
+            isPositive: isPositive
+        )
+    }
+
+    /// Generates annotation text based on frame type and metrics
+    private func generateAnnotation(
+        type: KeyFrameType,
+        facialFrame: FacialFrame?,
+        postureFrame: PostureFrame?
+    ) -> (annotation: String, primaryMetric: String, isPositive: Bool) {
+        switch type {
+        case .bestFacial:
+            if let facial = facialFrame {
+                if facial.smiling && facial.lookingAtCamera {
+                    return ("💪 Strong! Smile + eye contact = perfect connection", "Facial Expression", true)
+                }
+                if facial.smiling {
+                    return ("✨ Great smile here! You appear open and inviting", "Facial Expression", true)
+                }
+                if facial.expressiveness > 0.7 {
+                    return ("🎯 Very expressive! Your face emphasizes your message perfectly", "Facial Expression", true)
+                }
+            }
+            return ("👍 Good facial expression in this moment", "Facial Expression", true)
+
+        case .bestOverall:
+            return ("🌟 Perfect moment! Expression, posture, and gaze align ideally", "Overall", true)
+
+        case .improveFacial:
+            if let facial = facialFrame {
+                if !facial.smiling && facial.engagement < 0.5 {
+                    return ("💡 Tip: Smile more and appear livelier - even with serious topics", "Facial Expression", false)
+                }
+                if !facial.lookingAtCamera {
+                    return ("👁️ Look more at the camera instead of to the side - direct eye contact works", "Eye Contact", false)
+                }
+                if facial.expressiveness < 0.4 {
+                    return ("🎭 Your expression could be more varied - show more emotion", "Facial Expression", false)
+                }
+            }
+            return ("📝 Facial expression could be stronger here", "Facial Expression", false)
+
+        case .improvePosture:
+            if let posture = postureFrame {
+                if posture.confidence < 0.5 {
+                    return ("🏋️ Shoulders back, chest out - upright posture radiates confidence", "Posture", false)
+                }
+            }
+            return ("📐 Body posture could appear more confident here", "Posture", false)
+
+        case .improveEyeContact:
+            return ("👀 Try looking at the camera more consistently to connect with your audience", "Eye Contact", false)
+
+        case .averageMoment:
+            return ("📊 Representative moment from your presentation", "Overall", true)
+        }
+    }
+
+    /// Calculates a score for a specific frame
+    private func calculateFrameScore(
+        type: KeyFrameType,
+        facialFrame: FacialFrame?,
+        postureFrame: PostureFrame?,
+        facialScore: Int?,
+        postureScore: Int?,
+        eyeContactScore: Int?
+    ) -> Int {
+        switch type {
+        case .bestFacial:
+            if let facial = facialFrame {
+                let score = (facial.smiling ? 30.0 : 0.0) +
+                          (facial.expressiveness * 35.0) +
+                          (facial.engagement * 35.0)
+                return Int(score.rounded())
+            }
+            return facialScore ?? 50
+
+        case .bestOverall:
+            var total = 0.0
+            var count = 0.0
+            if let fs = facialScore { total += Double(fs); count += 1 }
+            if let ps = postureScore { total += Double(ps); count += 1 }
+            if let es = eyeContactScore { total += Double(es); count += 1 }
+            return count > 0 ? Int((total / count).rounded()) : 50
+
+        case .improveFacial:
+            if let facial = facialFrame {
+                let score = (facial.smiling ? 30.0 : 0.0) +
+                          (facial.expressiveness * 35.0) +
+                          (facial.engagement * 35.0)
+                return Int(score.rounded())
+            }
+            return facialScore ?? 50
+
+        case .improvePosture:
+            if let posture = postureFrame {
+                return Int((posture.confidence * 100).rounded())
+            }
+            return postureScore ?? 50
+
+        case .improveEyeContact:
+            return eyeContactScore ?? 50
+
+        case .averageMoment:
+            var total = 0.0
+            var count = 0.0
+            if let fs = facialScore { total += Double(fs); count += 1 }
+            if let ps = postureScore { total += Double(ps); count += 1 }
+            return count > 0 ? Int((total / count).rounded()) : 50
+        }
     }
 }
 

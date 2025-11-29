@@ -224,12 +224,13 @@ struct PracticeSession: Identifiable, Codable {
     var facialScore: Int?
     var postureScore: Int?
     var eyeContactScore: Int?
+    var keyFrames: [KeyFrame]?
 
     var averageScore: Int {
         (toneScore + pacingScore + gesturesScore) / 3
     }
 
-    init(id: UUID = UUID(), date: Date = Date(), toneScore: Int, pacingScore: Int, gesturesScore: Int, feedback: String = "", recordingType: String? = nil, projectId: UUID? = nil, gestureStrength: String? = nil, gestureImprovement: String? = nil, facialScore: Int? = nil, postureScore: Int? = nil, eyeContactScore: Int? = nil) {
+    init(id: UUID = UUID(), date: Date = Date(), toneScore: Int, pacingScore: Int, gesturesScore: Int, feedback: String = "", recordingType: String? = nil, projectId: UUID? = nil, gestureStrength: String? = nil, gestureImprovement: String? = nil, facialScore: Int? = nil, postureScore: Int? = nil, eyeContactScore: Int? = nil, keyFrames: [KeyFrame]? = nil) {
         self.id = id
         self.date = date
         self.toneScore = toneScore
@@ -243,6 +244,7 @@ struct PracticeSession: Identifiable, Codable {
         self.facialScore = facialScore
         self.postureScore = postureScore
         self.eyeContactScore = eyeContactScore
+        self.keyFrames = keyFrames
     }
 }
 
