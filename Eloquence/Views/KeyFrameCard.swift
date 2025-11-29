@@ -49,7 +49,7 @@ struct KeyFrameCard: View {
                 // Annotation
                 Text(keyFrame.annotation)
                     .font(.system(size: 13))
-                    .foregroundStyle(Color.text)
+                    .foregroundStyle(Color.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineLimit(3)
 
@@ -77,7 +77,7 @@ struct KeyFrameCard: View {
         } else if score >= 50 {
             return .warning
         } else {
-            return .error
+            return .danger
         }
     }
 }
