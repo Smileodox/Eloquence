@@ -91,3 +91,17 @@ iOSInjectionProject/
 
 # Azure OpenAI Configuration (contains API keys)
 Eloquence/Config.plist
+
+# macOS
+.DS_Store
+
+# Azure CLI
+.azure/config
+
+# Python Backend
+eloquence-auth-backend/.env
+eloquence-auth-backend/authvenv/
+eloquence-auth-backend/__pycache__/
+eloquence-auth-backend/*.py[cod]
+eloquence-auth-backend/.pytest_cache/
+eloquence-auth-backend/*.egg-info/

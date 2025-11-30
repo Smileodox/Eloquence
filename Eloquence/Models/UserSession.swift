@@ -37,6 +37,13 @@ class UserSession: ObservableObject {
         }
     }
     
+    // Auth Service
+    private let authService = AzureAuthService()
+    private let sessionStorage = SessionStorageService.shared
+    @Published var authError: String?
+    @Published var isSendingCode: Bool = false
+    @Published var isVerifyingCode: Bool = false
+    
     private let sessionsKey = "savedSessions"
     private let lastImprovementKey = "lastImprovement"
     private let projectsKey = "savedProjects"
@@ -45,23 +52,72 @@ class UserSession: ObservableObject {
         loadSessions()
         loadLastImprovement()
         loadProjects()
+        restoreSession()
+    }
+
+    private func restoreSession() {
+        if let session = sessionStorage.loadSession() {
+            self.isLoggedIn = true
+            self.email = session.email
+            self.userName = session.email.components(separatedBy: "@").first?.capitalized ?? "User"
+        }
     }
     
-    func login(email: String, password: String) {
-        // Simulate login
-        self.email = email
-        self.userName = "Johannes"
-        self.isLoggedIn = true
-        
-        // Don't load mock data - use real sessions only
-        // Sessions will be added when recordings are made
-        // Sessions are loaded from persistence in init()
+    // MARK: - Authentication
+    
+    @MainActor
+    func sendOTP(email: String) async -> Bool {
+        isSendingCode = true
+        authError = nil
+
+        do {
+            try await authService.sendOTP(email: email)
+            self.email = email
+            isSendingCode = false
+            return true
+        } catch {
+            self.authError = error.localizedDescription
+            isSendingCode = false
+            return false
+        }
+    }
+    
+    @MainActor
+    func verifyOTP(code: String) async -> Bool {
+        guard !email.isEmpty else {
+            authError = "Email address missing."
+            return false
+        }
+
+        isVerifyingCode = true
+        authError = nil
+
+        do {
+            let authenticatedUser = try await authService.verifyOTP(email: email, code: code)
+
+            // Save session to UserDefaults
+            sessionStorage.saveSession(
+                user: authenticatedUser.user,
+                accessToken: authenticatedUser.accessToken,
+                expiresIn: authenticatedUser.expiresIn
+            )
+
+            self.isLoggedIn = true
+            self.userName = authenticatedUser.user.email.components(separatedBy: "@").first?.capitalized ?? "User"
+            isVerifyingCode = false
+            return true
+        } catch {
+            self.authError = error.localizedDescription
+            isVerifyingCode = false
+            return false
+        }
     }
     
     func logout() {
+        sessionStorage.clearSession()
         self.isLoggedIn = false
         self.email = ""
-        self.userName = "Johannes"
+        self.userName = "User"
         // Don't clear sessions on logout - keep progress
     }
     

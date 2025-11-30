@@ -54,6 +54,13 @@ class ConfigurationManager {
     let gptDeployment: String
     let gptAPIVersion: String
 
+    // Supabase configuration
+    let supabaseURL: String
+    let supabaseAnonKey: String
+
+    // Azure Auth configuration
+    let azureAuthBaseURL: String
+
     private init() throws {
         // Load Config.plist
         guard let path = Bundle.main.path(forResource: "Config", ofType: "plist"),
@@ -61,6 +68,7 @@ class ConfigurationManager {
             throw ConfigurationError.missingConfigFile
         }
 
+        // MARK: - Azure OpenAI Configuration
         // Get Azure OpenAI section
         guard let azureConfig = dict["AzureOpenAI"] as? [String: Any] else {
             throw ConfigurationError.invalidStructure
@@ -101,10 +109,28 @@ class ConfigurationManager {
             )
         }
 
+        // MARK: - Supabase Configuration
+        guard let supabaseConfig = dict["Supabase"] as? [String: String],
+              let sbURL = supabaseConfig["URL"],
+              let sbKey = supabaseConfig["AnonKey"] else {
+             throw ConfigurationError.missingRequiredKeys(section: "Supabase", keys: ["URL", "AnonKey"])
+        }
+
+        self.supabaseURL = sbURL
+        self.supabaseAnonKey = sbKey
+
+        // MARK: - Azure Auth Configuration
+        guard let azureAuthConfig = dict["AzureAuth"] as? [String: String],
+              let authURL = azureAuthConfig["BaseURL"] else {
+            throw ConfigurationError.missingRequiredKeys(section: "AzureAuth", keys: ["BaseURL"])
+        }
+
         // Validate that placeholders have been replaced
-        if apiKey.contains("YOUR_") || endpoint.contains("YOUR_") {
+        if apiKey.contains("YOUR_") || endpoint.contains("YOUR_") || authURL.contains("YOUR_") {
             throw ConfigurationError.placeholderValuesDetected
         }
+
+        self.azureAuthBaseURL = authURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         self.azureAPIKey = apiKey
         self.baseEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
