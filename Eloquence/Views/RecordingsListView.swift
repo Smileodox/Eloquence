@@ -74,21 +74,45 @@ struct RecordingsListView: View {
     private var emptyStateView: some View {
         VStack(spacing: Theme.largeSpacing) {
             Spacer()
-            
+
             Image(systemName: "video.slash")
                 .font(.system(size: 80))
                 .foregroundStyle(Color.textMuted)
-            
+
             Text("No Recordings")
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(Color.textPrimary)
-            
-            Text("Your practice recordings will appear here")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Color.textMuted)
-                .multilineTextAlignment(.center)
+
+            VStack(spacing: 12) {
+                Text("Practice makes perfect!")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color.textPrimary)
+
+                Text("Start recording to get AI feedback on your presentation skills")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color.textMuted)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, Theme.largeSpacing)
+
+            // Call-to-action button
+            NavigationLink(destination: RecordingSetupView()) {
+                HStack {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 18))
+
+                    Text("Record Your First Presentation")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: Theme.buttonHeight)
+                .foregroundStyle(Color.bg)
+                .background(.primary)
+                .cornerRadius(Theme.cornerRadius)
                 .padding(.horizontal, Theme.largeSpacing)
-            
+            }
+            .buttonStyle(PlainButtonStyle())
+
             Spacer()
         }
     }
@@ -251,19 +275,27 @@ struct RecordingRow: View {
                                 .resizable()
                                 .scaledToFill()
                         } else {
-                            Color.bgLight
+                            // Loading skeleton
+                            ZStack {
+                                Color.bgLight
+
+                                ProgressView()
+                                    .tint(Color.textMuted)
+                            }
                         }
-                        
+
                         // Play button overlay
-                        ZStack {
-                            Circle()
-                                .fill(.black.opacity(0.6))
-                                .frame(width: 50, height: 50)
-                            
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.white)
-                                .offset(x: 2)
+                        if thumbnail != nil {
+                            ZStack {
+                                Circle()
+                                    .fill(.black.opacity(0.6))
+                                    .frame(width: 50, height: 50)
+
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(.white)
+                                    .offset(x: 2)
+                            }
                         }
                     }
                     .frame(width: 80, height: 80)

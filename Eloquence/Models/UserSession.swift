@@ -37,6 +37,13 @@ class UserSession: ObservableObject {
         }
     }
     
+    // Auth Service
+    private let authService = AzureAuthService()
+    private let sessionStorage = SessionStorageService.shared
+    @Published var authError: String?
+    @Published var isSendingCode: Bool = false
+    @Published var isVerifyingCode: Bool = false
+    
     private let sessionsKey = "savedSessions"
     private let lastImprovementKey = "lastImprovement"
     private let projectsKey = "savedProjects"
@@ -45,23 +52,72 @@ class UserSession: ObservableObject {
         loadSessions()
         loadLastImprovement()
         loadProjects()
+        restoreSession()
+    }
+
+    private func restoreSession() {
+        if let session = sessionStorage.loadSession() {
+            self.isLoggedIn = true
+            self.email = session.email
+            self.userName = session.email.components(separatedBy: "@").first?.capitalized ?? "User"
+        }
     }
     
-    func login(email: String, password: String) {
-        // Simulate login
-        self.email = email
-        self.userName = "Johannes"
-        self.isLoggedIn = true
-        
-        // Don't load mock data - use real sessions only
-        // Sessions will be added when recordings are made
-        // Sessions are loaded from persistence in init()
+    // MARK: - Authentication
+    
+    @MainActor
+    func sendOTP(email: String) async -> Bool {
+        isSendingCode = true
+        authError = nil
+
+        do {
+            try await authService.sendOTP(email: email)
+            self.email = email
+            isSendingCode = false
+            return true
+        } catch {
+            self.authError = error.localizedDescription
+            isSendingCode = false
+            return false
+        }
+    }
+    
+    @MainActor
+    func verifyOTP(code: String) async -> Bool {
+        guard !email.isEmpty else {
+            authError = "Email address missing."
+            return false
+        }
+
+        isVerifyingCode = true
+        authError = nil
+
+        do {
+            let authenticatedUser = try await authService.verifyOTP(email: email, code: code)
+
+            // Save session to UserDefaults
+            sessionStorage.saveSession(
+                user: authenticatedUser.user,
+                accessToken: authenticatedUser.accessToken,
+                expiresIn: authenticatedUser.expiresIn
+            )
+
+            self.isLoggedIn = true
+            self.userName = authenticatedUser.user.email.components(separatedBy: "@").first?.capitalized ?? "User"
+            isVerifyingCode = false
+            return true
+        } catch {
+            self.authError = error.localizedDescription
+            isVerifyingCode = false
+            return false
+        }
     }
     
     func logout() {
+        sessionStorage.clearSession()
         self.isLoggedIn = false
         self.email = ""
-        self.userName = "Johannes"
+        self.userName = "User"
         // Don't clear sessions on logout - keep progress
     }
     
@@ -159,7 +215,24 @@ class UserSession: ObservableObject {
     }
     
     func addSession(_ session: PracticeSession) {
-        sessions.append(session)
+        var sessionToSave = session
+        
+        // Persist key frame images to disk
+        if let keyFrames = sessionToSave.keyFrames {
+            var updatedKeyFrames: [KeyFrame] = []
+            for var keyFrame in keyFrames {
+                if keyFrame.imagePath == nil && !keyFrame.image.isEmpty {
+                    if let path = FileStorageService.shared.saveImage(keyFrame.image, id: keyFrame.id) {
+                        keyFrame.imagePath = path
+                        print("💾 [UserSession] Saved keyframe image to \(path)")
+                    }
+                }
+                updatedKeyFrames.append(keyFrame)
+            }
+            sessionToSave.keyFrames = updatedKeyFrames
+        }
+        
+        sessions.append(sessionToSave)
         
         // Calculate improvement
         if sessions.count >= 2 {
@@ -217,12 +290,20 @@ struct PracticeSession: Identifiable, Codable {
     var feedback: String = ""
     var recordingType: String?
     var projectId: UUID?
-    
+
+    // Gesture analysis details
+    var gestureStrength: String?
+    var gestureImprovement: String?
+    var facialScore: Int?
+    var postureScore: Int?
+    var eyeContactScore: Int?
+    var keyFrames: [KeyFrame]?
+
     var averageScore: Int {
         (toneScore + pacingScore + gesturesScore) / 3
     }
-    
-    init(id: UUID = UUID(), date: Date = Date(), toneScore: Int, pacingScore: Int, gesturesScore: Int, feedback: String = "", recordingType: String? = nil, projectId: UUID? = nil) {
+
+    init(id: UUID = UUID(), date: Date = Date(), toneScore: Int, pacingScore: Int, gesturesScore: Int, feedback: String = "", recordingType: String? = nil, projectId: UUID? = nil, gestureStrength: String? = nil, gestureImprovement: String? = nil, facialScore: Int? = nil, postureScore: Int? = nil, eyeContactScore: Int? = nil, keyFrames: [KeyFrame]? = nil) {
         self.id = id
         self.date = date
         self.toneScore = toneScore
@@ -231,6 +312,12 @@ struct PracticeSession: Identifiable, Codable {
         self.feedback = feedback
         self.recordingType = recordingType
         self.projectId = projectId
+        self.gestureStrength = gestureStrength
+        self.gestureImprovement = gestureImprovement
+        self.facialScore = facialScore
+        self.postureScore = postureScore
+        self.eyeContactScore = eyeContactScore
+        self.keyFrames = keyFrames
     }
 }
 
