@@ -163,35 +163,37 @@ struct RecordingSetupView: View {
             // Start Video Button
             VStack {
                 Spacer()
-                
+
                 Button(action: {
-                    // Create project if none selected
-                    if selectedProject == nil && !userSession.projects.isEmpty {
-                        selectedProject = userSession.projects.first
-                    } else if selectedProject == nil {
-                        // Will be handled by alert
+                    // Only allow if projects exist
+                    guard !userSession.projects.isEmpty else {
                         showNewProjectAlert = true
                         return
                     }
-                    
+
+                    // Auto-select first project if none selected
+                    if selectedProject == nil {
+                        selectedProject = userSession.projects.first
+                    }
+
                     navigateToRecording = true
                 }) {
                     HStack {
                         Image(systemName: "video.fill")
                             .font(.system(size: 20))
-                        
+
                         Text("Start Video")
                             .font(.system(size: 18, weight: .semibold))
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: Theme.buttonHeight)
-                    .foregroundStyle(Color.bg)
-                    .background(Color.primary)
+                    .foregroundStyle(userSession.projects.isEmpty ? Color.bg.opacity(0.5) : Color.bg)
+                    .background(userSession.projects.isEmpty ? Color.primary.opacity(0.5) : Color.primary)
                     .cornerRadius(Theme.cornerRadius)
                 }
                 .padding(.horizontal, Theme.largeSpacing)
                 .padding(.bottom, Theme.largeSpacing)
-                .disabled(selectedProject == nil && userSession.projects.isEmpty)
+                .disabled(userSession.projects.isEmpty)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
