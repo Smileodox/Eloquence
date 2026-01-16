@@ -31,7 +31,12 @@ struct AnalyzingView: View {
     @State private var showErrorAlert = false
     @State private var currentStepMessage = ""
     @State private var navigateToDashboard = false
-    
+
+    // Visual feedback animations
+    @State private var isPulsing = false
+    @State private var activityDots = ""
+    @State private var dotTimer: Timer?
+
     init(videoURL: URL? = nil, recordingType: RecordingType? = nil, project: Project? = nil) {
         self.videoURL = videoURL
         self.recordingType = recordingType
@@ -61,13 +66,15 @@ struct AnalyzingView: View {
             .padding(.top, Theme.largeSpacing)
         }
         .navigationDestination(isPresented: $navigateToFeedback) {
-            FeedbackView(session: generatedSession ?? sampleSession)
+            FeedbackView(session: generatedSession ?? sampleSession, entryPoint: .newRecording)
         }
         .navigationDestination(isPresented: $navigateToDashboard) {
             DashboardView()
         }
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            isPulsing = true
+            startActivityDots()
             startRealAnalysis()
         }
         .alert("Analysis Error", isPresented: $showErrorAlert) {
@@ -76,6 +83,8 @@ struct AnalyzingView: View {
                 currentStep = 0
                 currentStepMessage = ""
                 errorMessage = nil
+                isPulsing = true
+                startActivityDots()
                 startRealAnalysis()
             }
             Button("Return to Dashboard") {
@@ -112,6 +121,12 @@ struct AnalyzingView: View {
                     .font(.system(size: 50))
                     .foregroundStyle(Color.primary)
                     .rotationEffect(.degrees(progress * 360))
+                    .scaleEffect(isPulsing ? 1.1 : 1.0)
+                    .animation(
+                        .easeInOut(duration: 1.2)
+                            .repeatForever(autoreverses: true),
+                        value: isPulsing
+                    )
             }
         }
         .frame(height: 200)
@@ -146,17 +161,25 @@ struct AnalyzingView: View {
     }
     
     private var currentStepCard: some View {
-        HStack(spacing: 16) {
-            Image(systemName: steps[currentStep].0)
-                .font(.system(size: 24))
+        VStack(spacing: 12) {
+            HStack(spacing: 16) {
+                Image(systemName: steps[currentStep].0)
+                    .font(.system(size: 24))
+                    .foregroundStyle(Color.primary)
+                    .frame(width: 32)
+
+                Text(currentStepMessage.isEmpty ? steps[currentStep].1 : currentStepMessage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
+
+                Spacer()
+            }
+
+            // Activity dots indicator
+            Text(activityDots)
+                .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(Color.primary)
-                .frame(width: 32)
-
-            Text(currentStepMessage.isEmpty ? steps[currentStep].1 : currentStepMessage)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color.textPrimary)
-
-            Spacer()
+                .frame(height: 30)
         }
         .padding(Theme.largeSpacing)
         .background(Color.bgLight)
@@ -197,6 +220,20 @@ struct AnalyzingView: View {
         .padding(.horizontal, Theme.largeSpacing)
     }
     
+    // MARK: - Visual Feedback Helpers
+
+    private func startActivityDots() {
+        dotTimer?.invalidate()
+        dotTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            activityDots = activityDots.count >= 3 ? "" : activityDots + "."
+        }
+    }
+
+    private func stopActivityDots() {
+        dotTimer?.invalidate()
+        activityDots = ""
+    }
+
     // MARK: - Real Analysis with Azure OpenAI
 
     private func startRealAnalysis() {
@@ -208,17 +245,17 @@ struct AnalyzingView: View {
         Task {
             do {
                 // Step 1: Extract audio from video
-                await updateStep(0, message: "Extracting audio from video...", progress: 0.2)
+                updateStep(0, message: "Extracting audio from video...", progress: 0.2)
                 let audioURL = try await audioService.extractAudio(from: videoURL)
 
                 // Step 2: Transcribe audio with Whisper (with retry logic)
-                await updateStep(1, message: "Transcribing speech with AI...", progress: 0.5)
+                updateStep(1, message: "Transcribing speech with AI...", progress: 0.5)
                 let transcription = try await retryHelper.withRetry {
                     try await azureService.transcribeAudio(audioURL)
                 }
 
                 // Step 3: Analyze speech metrics locally
-                await updateStep(2, message: "Analyzing pace and tone...", progress: 0.55)
+                updateStep(2, message: "Analyzing pace and tone...", progress: 0.55)
                 let audioDuration = try await audioService.getAudioDuration(audioURL)
                 let metrics = azureService.analyzeSpeechMetrics(
                     transcription: transcription.text,
@@ -226,11 +263,11 @@ struct AnalyzingView: View {
                 )
 
                 // Step 4: Analyze gestures (facial expressions + body posture)
-                await updateStep(3, message: "Analyzing facial expressions and posture...", progress: 0.75)
+                updateStep(3, message: "Analyzing facial expressions and posture...", progress: 0.75)
                 let gestureMetrics = try await gestureService.analyzeVideo(from: videoURL)
 
                 // Step 5: Generate ALL feedback in parallel (Text + Vision)
-                await updateStep(4, message: "Generating personalized feedback...", progress: 0.90)
+                updateStep(4, message: "Generating personalized feedback...", progress: 0.90)
 
                 // Launch all AI tasks simultaneously
                 async let analysisTask = retryHelper.withRetry {
@@ -256,7 +293,7 @@ struct AnalyzingView: View {
                 let (speechAnalysis, gestureAnalysisResult, enhancedGestureMetrics) = try await (analysisTask, gestureAnalysisTask, enhancedMetricsTask)
 
                 // Complete
-                await updateStep(4, message: "Analysis complete!", progress: 1.0)
+                updateStep(4, message: "Analysis complete!", progress: 1.0)
 
                 // Create session from real analysis
                 let session = createSessionFromAnalysis(
@@ -275,6 +312,7 @@ struct AnalyzingView: View {
 
                 // Navigate to feedback
                 await MainActor.run {
+                    stopActivityDots()
                     generatedSession = session
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         navigateToFeedback = true
@@ -282,13 +320,13 @@ struct AnalyzingView: View {
                 }
 
             } catch let error as AzureAPIError {
-                await showError(error.userMessage)
+                showError(error.userMessage)
             } catch let error as AudioExtractionError {
-                await showError(error.userMessage)
+                showError(error.userMessage)
             } catch let error as GestureAnalysisError {
-                await showError(error.userMessage)
+                showError(error.userMessage)
             } catch {
-                await showError("An unexpected error occurred: \(error.localizedDescription)")
+                showError("An unexpected error occurred: \(error.localizedDescription)")
             }
         }
     }
@@ -304,6 +342,7 @@ struct AnalyzingView: View {
 
     @MainActor
     private func showError(_ message: String) {
+        stopActivityDots()
         errorMessage = message
         showErrorAlert = true
     }
@@ -324,10 +363,10 @@ struct AnalyzingView: View {
         // Use TaskGroup to process frames in parallel
         try await withThrowingTaskGroup(of: KeyFrame.self) { group in
             for keyFrame in gestureMetrics.keyFrames {
-                group.addTask {
+                group.addTask { [self] in
                     do {
                         // Extract ~500 chars of transcription context around timestamp
-                        let contextExcerpt = self.extractTranscriptionContext(
+                        let contextExcerpt = extractTranscriptionContext(
                             from: transcription,
                             timestamp: keyFrame.timestamp,
                             wordsPerSecond: wordsPerSecond,
@@ -335,7 +374,7 @@ struct AnalyzingView: View {
                         )
 
                         // Generate AI annotation
-                        let aiAnnotation = try await self.azureService.generateKeyFrameAnnotation(
+                        let aiAnnotation = try await azureService.generateKeyFrameAnnotation(
                             imageData: keyFrame.image,
                             type: keyFrame.type,
                             transcriptionExcerpt: contextExcerpt,
@@ -365,8 +404,17 @@ struct AnalyzingView: View {
                 }
             }
             
-            // Collect results
+            // Collect results with progress tracking
+            var processedFrames = 0
+            let totalFrames = gestureMetrics.keyFrames.count
+
             for try await frame in group {
+                processedFrames += 1
+                await updateStep(
+                    4,
+                    message: "Enhancing key frames (\(processedFrames)/\(totalFrames))...",
+                    progress: 0.90 + (0.05 * Double(processedFrames) / Double(totalFrames))
+                )
                 enhancedFrames.append(frame)
             }
         }

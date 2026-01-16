@@ -12,6 +12,7 @@ struct FeedbackView: View {
     @EnvironmentObject var userSession: UserSession
     @Environment(\.dismiss) var dismiss
     let session: PracticeSession
+    let entryPoint: FeedbackEntryPoint
     @State private var showCelebration = false
     @State private var navigateToDashboard = false
     @State private var showNameRecordingAlert = false
@@ -33,6 +34,21 @@ struct FeedbackView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    handleBackNavigation()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text(entryPoint.backButtonLabel)
+                            .font(.system(size: 17))
+                    }
+                    .foregroundStyle(.primary)
+                }
+            }
+        }
         .navigationDestination(isPresented: $navigateToDashboard) {
             DashboardView()
         }
@@ -373,6 +389,20 @@ struct FeedbackView: View {
         formatter.timeStyle = .short
         return formatter.string(from: session.date)
     }
+
+    private func handleBackNavigation() {
+        switch entryPoint {
+        case .recordingsList:
+            // Dismiss to return to RecordingsListView
+            dismiss()
+        case .newRecording:
+            // Navigate to Dashboard
+            navigateToDashboard = true
+        case .progressView:
+            // Dismiss to return to ProgressView
+            dismiss()
+        }
+    }
 }
 
 struct ScoreCard: View {
@@ -474,13 +504,16 @@ struct SubScoreRow: View {
 
 #Preview {
     NavigationStack {
-        FeedbackView(session: PracticeSession(
-            date: Date(),
-            toneScore: 85,
-            pacingScore: 80,
-            gesturesScore: 88,
-            feedback: "Great job! Your tone was engaging and your pacing was excellent. Try to add more pauses between key points."
-        ))
+        FeedbackView(
+            session: PracticeSession(
+                date: Date(),
+                toneScore: 85,
+                pacingScore: 80,
+                gesturesScore: 88,
+                feedback: "Great job! Your tone was engaging and your pacing was excellent. Try to add more pauses between key points."
+            ),
+            entryPoint: .newRecording
+        )
         .environmentObject(UserSession())
     }
 }

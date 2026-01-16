@@ -44,7 +44,7 @@ class FrameExtractionService {
     ///   - sampleRate: Frames per second to extract. If nil, uses adaptive sampling.
     ///   - handler: Async closure called for each frame (Buffer, Timestamp)
     func processFrames(from videoURL: URL, sampleRate: Double? = nil, handler: (CVPixelBuffer, Double) async -> Void) async throws {
-        let asset = AVAsset(url: videoURL)
+        let asset = AVURLAsset(url: videoURL)
 
         // Verify asset is readable
         guard try await asset.load(.isReadable) else {
@@ -76,7 +76,7 @@ class FrameExtractionService {
             // Note: We cannot use autoreleasepool with async/await here.
             // The scope of the loop iteration should suffice for releasing local CVPixelBuffers.
             do {
-                let cgImage = try imageGenerator.copyCGImage(at: time, actualTime: nil)
+                let (cgImage, _) = try await imageGenerator.image(at: time)
                 if let pixelBuffer = cgImage.toPixelBuffer() {
                     // Yield frame and timestamp to handler
                     await handler(pixelBuffer, CMTimeGetSeconds(time))
@@ -97,8 +97,8 @@ class FrameExtractionService {
     func extractFrames(from videoURL: URL, sampleRate: Double? = nil) async throws -> [CVPixelBuffer] {
         // ... (Keep existing implementation for backward compatibility if needed, or simply delegate to processFrames?)
         // For now, we keep the original implementation but it shouldn't be used for long videos.
-        
-        let asset = AVAsset(url: videoURL)
+
+        let asset = AVURLAsset(url: videoURL)
 
         // Verify asset is readable
         guard try await asset.load(.isReadable) else {
@@ -130,15 +130,13 @@ class FrameExtractionService {
 
         // Extract frames
         for time in frameTimes {
-            autoreleasepool {
-                do {
-                    let cgImage = try imageGenerator.copyCGImage(at: time, actualTime: nil)
-                    if let pixelBuffer = cgImage.toPixelBuffer() {
-                        frames.append(pixelBuffer)
-                    }
-                } catch {
-                    print("⚠️ [FrameExtraction] Failed to extract frame at \(CMTimeGetSeconds(time))s: \(error)")
+            do {
+                let (cgImage, _) = try await imageGenerator.image(at: time)
+                if let pixelBuffer = cgImage.toPixelBuffer() {
+                    frames.append(pixelBuffer)
                 }
+            } catch {
+                print("⚠️ [FrameExtraction] Failed to extract frame at \(CMTimeGetSeconds(time))s: \(error)")
             }
         }
 
@@ -152,7 +150,7 @@ class FrameExtractionService {
     ///   - sampleRate: Optional frames per second (if nil, uses adaptive sampling)
     /// - Returns: Estimated frame count
     func estimateFrameCount(for videoURL: URL, sampleRate: Double? = nil) async throws -> Int {
-        let asset = AVAsset(url: videoURL)
+        let asset = AVURLAsset(url: videoURL)
         let duration = try await CMTimeGetSeconds(asset.load(.duration))
         let fps = sampleRate ?? calculateAdaptiveFPS(for: duration)
         return Int(duration * fps)

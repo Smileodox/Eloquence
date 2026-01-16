@@ -271,12 +271,26 @@ enum RecordingType: String, CaseIterable {
     case professional = "Professional"
     case education = "Education"
     case publicSpeech = "Public Speech"
-    
+
     var icon: String {
         switch self {
         case .professional: return "briefcase.fill"
         case .education: return "book.fill"
         case .publicSpeech: return "megaphone.fill"
+        }
+    }
+}
+
+enum FeedbackEntryPoint {
+    case recordingsList    // Came from RecordingsListView
+    case newRecording      // Just finished recording via AnalyzingView
+    case progressView      // Came from ProgressView (if applicable)
+
+    var backButtonLabel: String {
+        switch self {
+        case .recordingsList: return "Recordings"
+        case .newRecording: return "Dashboard"
+        case .progressView: return "Progress"
         }
     }
 }
