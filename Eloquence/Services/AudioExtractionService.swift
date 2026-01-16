@@ -8,7 +8,7 @@
 import Foundation
 import AVFoundation
 
-class AudioExtractionService: ObservableObject {
+class AudioExtractionService {
 
     /// Extracts audio from a video file and returns the audio file URL
     /// - Parameter videoURL: URL of the source video file (.mov)

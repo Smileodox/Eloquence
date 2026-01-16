@@ -2,7 +2,7 @@
 //  ConfigurationManager.swift
 //  Eloquence
 //
-//  Manages Azure OpenAI configuration from Config.plist
+//  Manages configuration from Config.plist
 //
 
 import Foundation
@@ -17,13 +17,13 @@ enum ConfigurationError: Error {
     var userMessage: String {
         switch self {
         case .missingConfigFile:
-            return "Configuration file is missing. Please create Config.plist with your Azure OpenAI credentials. See Config.plist.example for template."
+            return "Configuration file is missing. Please create Config.plist with your credentials. See Config.plist.example for template."
         case .invalidStructure:
             return "Configuration file structure is invalid. Please check Config.plist format."
         case .missingRequiredKeys(let section, let keys):
             return "Missing required configuration in \(section) section: \(keys.joined(separator: ", "))"
         case .placeholderValuesDetected:
-            return "Please update Config.plist with your actual Azure OpenAI credentials. Current values appear to be placeholders."
+            return "Please update Config.plist with your actual credentials. Current values appear to be placeholders."
         }
     }
 }
@@ -33,32 +33,18 @@ class ConfigurationManager {
         do {
             return try ConfigurationManager()
         } catch let error as ConfigurationError {
-            // In production, you might want to log this error
             print("⚠️ Configuration Error: \(error.userMessage)")
-            // Return a default instance that will cause errors when used
-            // The app should check for valid configuration before using services
             fatalError("Unable to load configuration: \(error.userMessage)")
         } catch {
             fatalError("Unexpected configuration error: \(error)")
         }
     }()
 
-    let azureAPIKey: String
-    let baseEndpoint: String
-
-    // Whisper configuration
-    let whisperDeployment: String
-    let whisperAPIVersion: String
-
-    // GPT configuration
-    let gptDeployment: String
-    let gptAPIVersion: String
-
-    // Supabase configuration
+    // Supabase configuration (legacy - kept for compatibility)
     let supabaseURL: String
     let supabaseAnonKey: String
 
-    // Azure Auth configuration
+    // Azure Auth configuration - this is the backend URL for all API calls
     let azureAuthBaseURL: String
 
     private init() throws {
@@ -68,48 +54,7 @@ class ConfigurationManager {
             throw ConfigurationError.missingConfigFile
         }
 
-        // MARK: - Azure OpenAI Configuration
-        // Get Azure OpenAI section
-        guard let azureConfig = dict["AzureOpenAI"] as? [String: Any] else {
-            throw ConfigurationError.invalidStructure
-        }
-
-        // Read top-level keys
-        guard let apiKey = azureConfig["APIKey"] as? String,
-              let endpoint = azureConfig["BaseEndpoint"] as? String else {
-            throw ConfigurationError.missingRequiredKeys(
-                section: "AzureOpenAI",
-                keys: ["APIKey", "BaseEndpoint"]
-            )
-        }
-
-        guard let whisperConfig = azureConfig["Whisper"] as? [String: String],
-              let gptConfig = azureConfig["GPT"] as? [String: String] else {
-            throw ConfigurationError.missingRequiredKeys(
-                section: "AzureOpenAI",
-                keys: ["Whisper (dict)", "GPT (dict)"]
-            )
-        }
-
-        // Read Whisper configuration
-        guard let whisperDeployment = whisperConfig["DeploymentName"],
-              let whisperAPIVersion = whisperConfig["APIVersion"] else {
-            throw ConfigurationError.missingRequiredKeys(
-                section: "Whisper",
-                keys: ["DeploymentName", "APIVersion"]
-            )
-        }
-
-        // Read GPT configuration
-        guard let gptDeployment = gptConfig["DeploymentName"],
-              let gptAPIVersion = gptConfig["APIVersion"] else {
-            throw ConfigurationError.missingRequiredKeys(
-                section: "GPT",
-                keys: ["DeploymentName", "APIVersion"]
-            )
-        }
-
-        // MARK: - Supabase Configuration
+        // MARK: - Supabase Configuration (legacy)
         guard let supabaseConfig = dict["Supabase"] as? [String: String],
               let sbURL = supabaseConfig["URL"],
               let sbKey = supabaseConfig["AnonKey"] else {
@@ -126,32 +71,10 @@ class ConfigurationManager {
         }
 
         // Validate that placeholders have been replaced
-        if apiKey.contains("YOUR_") || endpoint.contains("YOUR_") || authURL.contains("YOUR_") {
+        if authURL.contains("YOUR_") {
             throw ConfigurationError.placeholderValuesDetected
         }
 
         self.azureAuthBaseURL = authURL.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        self.azureAPIKey = apiKey
-        self.baseEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.whisperDeployment = whisperDeployment
-        self.whisperAPIVersion = whisperAPIVersion
-        self.gptDeployment = gptDeployment
-        self.gptAPIVersion = gptAPIVersion
-    }
-
-    /// Builds the complete Whisper API URL
-    func whisperURL() -> String {
-        return "\(baseEndpoint)/openai/deployments/\(whisperDeployment)/audio/transcriptions?api-version=\(whisperAPIVersion)"
-    }
-
-    /// Builds the complete GPT API URL
-        func gptURL() -> String {
-            return "\(baseEndpoint)/openai/deployments/\(gptDeployment)/chat/completions?api-version=\(gptAPIVersion)"
-        }
-
-    /// Validates that the endpoint is properly formatted
-    var isEndpointValid: Bool {
-        return baseEndpoint.starts(with: "https://") && baseEndpoint.contains(".cognitiveservices.azure.com")
     }
 }

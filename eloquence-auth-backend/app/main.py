@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import auth
+from app.routers import auth, llm
 
 app = FastAPI(
     title="Eloquence Auth API",
-    description="Authentication service using Azure Communication Services",
-    version="1.0.0"
+    description="Authentication and LLM proxy service for Eloquence",
+    version="1.1.0"
 )
 
 # CORS configuration
@@ -20,6 +20,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router)
+app.include_router(llm.router)
 
 @app.get("/")
 async def root():

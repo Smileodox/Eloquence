@@ -2,27 +2,50 @@
 //  AzureOpenAIService.swift
 //  Eloquence
 //
-//  Service for Azure OpenAI API communication (Whisper + GPT)
+//  Service for Azure OpenAI API communication via backend proxy
 //
 
 import Foundation
 
-class AzureOpenAIService: ObservableObject {
+class AzureOpenAIService {
 
     private let config = ConfigurationManager.shared
 
+    // MARK: - Backend Proxy Endpoints
+
+    private var transcribeURL: URL {
+        URL(string: "\(config.azureAuthBaseURL)/llm/transcribe")!
+    }
+
+    private var analyzeSpeechURL: URL {
+        URL(string: "\(config.azureAuthBaseURL)/llm/analyze-speech")!
+    }
+
+    private var analyzeGestureURL: URL {
+        URL(string: "\(config.azureAuthBaseURL)/llm/analyze-gesture")!
+    }
+
+    private var annotateFrameURL: URL {
+        URL(string: "\(config.azureAuthBaseURL)/llm/annotate-frame")!
+    }
+
+    // MARK: - Authentication Helper
+
+    /// Gets the current session token for API authentication
+    private func getAuthToken() throws -> String {
+        guard let session = SessionStorageService.shared.loadSession() else {
+            throw AzureAPIError.authenticationFailed
+        }
+        return session.accessToken
+    }
+
     // MARK: - Whisper API (Speech-to-Text)
 
-    /// Transcribes audio using Azure OpenAI Whisper API
+    /// Transcribes audio using the backend proxy to Azure OpenAI Whisper API
     /// - Parameter audioURL: URL of the audio file (.m4a)
     /// - Returns: Transcription result with text and metadata
     func transcribeAudio(_ audioURL: URL) async throws -> WhisperTranscription {
-        // Build API endpoint using ConfigurationManager
-        let urlString = config.whisperURL()
-        print("🔊 Whisper API URL: \(urlString)")
-        guard let url = URL(string: urlString) else {
-            throw AzureAPIError.configurationError
-        }
+        let token = try getAuthToken()
 
         // Read audio file
         let audioData = try Data(contentsOf: audioURL)
@@ -30,21 +53,30 @@ class AzureOpenAIService: ObservableObject {
 
         // Create multipart form data
         let boundary = UUID().uuidString
-        let body = createMultipartBody(audioData: audioData, boundary: boundary)
+        var body = Data()
+
+        // Add file field
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/m4a\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // Close boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         // Create request
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: transcribeURL)
         request.httpMethod = "POST"
-        request.setValue(config.azureAPIKey, forHTTPHeaderField: "api-key")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        request.timeoutInterval = 60 // 60 seconds timeout for large files
+        request.timeoutInterval = 60
 
         // Make request
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        print("🔊 Whisper Response Status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-        print("🔊 Whisper Response: \(String(data: data, encoding: .utf8) ?? "Unable to parse")")
+        print("🔊 Transcribe Response Status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
 
         try validateResponse(response, data: data)
 
@@ -57,28 +89,6 @@ class AzureOpenAIService: ObservableObject {
         }
 
         return transcription
-    }
-
-    /// Creates multipart/form-data body for Whisper API
-    private func createMultipartBody(audioData: Data, boundary: String) -> Data {
-        var body = Data()
-
-        // Add file field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/m4a\r\n\r\n".data(using: .utf8)!)
-        body.append(audioData)
-        body.append("\r\n".data(using: .utf8)!)
-
-        // Add model field (required by Azure)
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-        body.append("whisper-1\r\n".data(using: .utf8)!)
-
-        // Close boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-
-        return body
     }
 
     // MARK: - Local Metrics Analysis
@@ -120,93 +130,31 @@ class AzureOpenAIService: ObservableObject {
 
     // MARK: - GPT API (Feedback Generation)
 
-    /// Generates personalized feedback using Azure OpenAI GPT-5-mini
+    /// Generates personalized feedback using the backend proxy
     /// - Parameters:
     ///   - transcription: The speech transcription
     ///   - metrics: Speech metrics (WPM, pauses, etc.)
     /// - Returns: Analysis with scores and feedback
     func generateFeedback(transcription: String, metrics: SpeechMetrics) async throws -> GPTAnalysisResponse {
-        // Build API endpoint using ConfigurationManager
-        let urlString = config.gptURL()
-        print("💬 GPT API URL: \(urlString)")
-        guard let url = URL(string: urlString) else {
-            throw AzureAPIError.configurationError
-        }
+        let token = try getAuthToken()
 
-        // Build enhanced system prompt with examples (QUALITY IMPROVEMENT)
-        let systemPrompt = """
-        You are an expert presentation coach analyzing a practice presentation. Provide detailed, personalized coaching feedback that references specific moments from the transcription.
+        // Build request body matching backend SpeechAnalysisRequest
+        let requestBody: [String: Any] = [
+            "transcription": transcription,
+            "wordCount": metrics.wordCount,
+            "duration": metrics.duration,
+            "wordsPerMinute": metrics.wordsPerMinute,
+            "pauseCount": metrics.pauseCount,
+            "sentenceCount": metrics.sentenceCount,
+            "averageSentenceLength": metrics.averageSentenceLength
+        ]
 
-        Scoring Guidelines:
-        - Tone Score (0-100): Overall vocal quality, appropriateness for context
-        - Confidence Score (0-100): Assertiveness, clarity, conviction in speech
-        - Enthusiasm Score (0-100): Energy, passion, engagement with topic
-        - Clarity Score (0-100): Articulation, organization, ease of understanding
-
-        Pacing Guidelines:
-        - Ideal: 130-150 words per minute (clear, comfortable pace)
-        - Acceptable: 100-130 or 150-180 WPM (slightly slow or fast)
-        - Poor: Below 100 or above 180 WPM (too slow or rushed)
-
-        Feedback Quality Guidelines:
-        - Reference specific moments and quotes from the transcription
-        - Balance strengths and growth areas with concrete examples
-        - Provide actionable advice, not generic observations
-        - Match your tone to the presentation's formality and topic
-        - Use as much detail as needed to be genuinely helpful (2-8 sentences is fine)
-
-        Example of excellent feedback:
-        "Your opening about climate change showed strong conviction, especially when you emphasized the 2050 deadline at the start. Your pace was ideal (145 WPM) - fast enough to show energy but not rushed. The transition where you said 'but here's what we can do' was perfectly timed and confident. Consider varying your vocal tone more when transitioning between hard statistics and human impact stories to create more emotional contrast and keep your audience engaged. Your conclusion would also benefit from a slight pause before the final call-to-action to let the weight settle."
-
-        Respond ONLY with valid JSON matching this exact structure (no additional text):
-        {
-          "toneScore": <number 0-100>,
-          "confidenceScore": <number 0-100>,
-          "enthusiasmScore": <number 0-100>,
-          "clarityScore": <number 0-100>,
-          "feedback": "<detailed, personalized coaching feedback>",
-          "keyStrengths": ["<specific strength with example>", "<specific strength with example>"],
-          "areasToImprove": ["<specific area with actionable advice>", "<specific area with actionable advice>"]
-        }
-        """
-
-        // Build user prompt with transcription and metrics
-        let userPrompt = """
-        Please analyze this presentation:
-
-        TRANSCRIPTION:
-        "\(transcription)"
-
-        METRICS:
-        - Speaking pace: \(metrics.wordsPerMinute) words per minute
-        - Total words: \(metrics.wordCount)
-        - Duration: \(String(format: "%.1f", metrics.duration)) seconds
-        - Pauses used: \(metrics.pauseCount)
-        - Sentences: \(metrics.sentenceCount)
-        - Average sentence length: \(String(format: "%.1f", metrics.averageSentenceLength)) words
-
-        Provide your analysis in JSON format as specified.
-        """
-
-        // Create chat request
-        let chatRequest = GPTChatRequest(
-            messages: [
-                GPTMessage(role: "system", content: systemPrompt),
-                GPTMessage(role: "user", content: userPrompt)
-            ],
-            maxTokens: 2000,  // Increased from 800 for detailed, quality feedback
-            temperature: 1.0,  // gpt-5-mini only supports default temperature
-            responseFormat: GPTChatRequest.ResponseFormat(type: "json_object")
-        )
-
-        // Encode request
-        let encoder = JSONEncoder()
-        let requestData = try encoder.encode(chatRequest)
+        let requestData = try JSONSerialization.data(withJSONObject: requestBody)
 
         // Create request
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: analyzeSpeechURL)
         request.httpMethod = "POST"
-        request.setValue(config.azureAPIKey, forHTTPHeaderField: "api-key")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = requestData
         request.timeoutInterval = 60
@@ -214,25 +162,12 @@ class AzureOpenAIService: ObservableObject {
         // Make request
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        print("💬 GPT Response Status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-        print("💬 GPT Response: \(String(data: data, encoding: .utf8) ?? "Unable to parse")")
+        print("💬 Speech Analysis Response Status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
 
         try validateResponse(response, data: data)
 
-        // Parse GPT response
-        let chatResponse = try JSONDecoder().decode(GPTChatResponse.self, from: data)
-        guard let messageContent = chatResponse.choices.first?.message.content else {
-            throw AzureAPIError.parseError
-        }
-
-        // Parse analysis JSON from message content
-        guard let analysisData = messageContent.data(using: .utf8) else {
-            throw AzureAPIError.parseError
-        }
-
-        let decoder = JSONDecoder()
-        let analysis = try decoder.decode(GPTAnalysisResponse.self, from: analysisData)
-
+        // Parse response
+        let analysis = try JSONDecoder().decode(GPTAnalysisResponse.self, from: data)
         return analysis
     }
 
@@ -249,13 +184,15 @@ class AzureOpenAIService: ObservableObject {
             // Success
             return
         case 401:
-            print("❌ Authentication failed. Check your API key in Config.plist")
+            print("❌ Authentication failed. Session may have expired.")
+            throw AzureAPIError.authenticationFailed
+        case 403:
+            print("❌ Access forbidden. Email may not be whitelisted.")
             throw AzureAPIError.authenticationFailed
         case 429:
             print("❌ Rate limit exceeded")
             throw AzureAPIError.quotaExceeded
         case 400:
-            // Parse error details if available
             if let errorStr = String(data: data, encoding: .utf8) {
                 print("❌ Bad request: \(errorStr)")
             }
@@ -330,7 +267,7 @@ class AzureOpenAIService: ObservableObject {
 
     // MARK: - Gesture Feedback Generation
 
-    /// Generates personalized gesture feedback using Azure OpenAI GPT-5-mini
+    /// Generates personalized gesture feedback using the backend proxy
     /// - Parameters:
     ///   - gestureMetrics: Gesture analysis metrics from Vision Framework
     ///   - transcription: The speech transcription for context
@@ -339,130 +276,28 @@ class AzureOpenAIService: ObservableObject {
         gestureMetrics: GestureMetrics,
         transcription: String
     ) async throws -> GestureAnalysisResponse {
-        // Build API endpoint
-        let urlString = config.gptURL()
-        guard let url = URL(string: urlString) else {
-            throw AzureAPIError.configurationError
-        }
+        let token = try getAuthToken()
 
-        // Determine what was detected
-        let hasFacialData = gestureMetrics.facialScore > 0
-        let hasPostureData = gestureMetrics.postureScore > 0
-        let hasEyeContactData = gestureMetrics.eyeContactScore != nil && gestureMetrics.eyeContactScore! > 0
+        // Build request body matching backend GestureAnalysisRequest
+        let requestBody: [String: Any] = [
+            "transcription": transcription,
+            "smileFrequency": gestureMetrics.facialMetrics.smileFrequency,
+            "expressionVariety": gestureMetrics.facialMetrics.expressionVariety,
+            "engagementLevel": gestureMetrics.facialMetrics.averageEngagement,
+            "confidenceScore": gestureMetrics.postureMetrics.averageConfidence,
+            "movementConsistency": gestureMetrics.postureMetrics.movementConsistency,
+            "stabilityScore": gestureMetrics.postureMetrics.stabilityScore,
+            "cameraFocusPercentage": gestureMetrics.eyeContactMetrics?.cameraFocusPercentage ?? 0,
+            "readingNotesPercentage": gestureMetrics.eyeContactMetrics?.readingNotesPercentage ?? 0,
+            "gazeStabilityScore": gestureMetrics.eyeContactMetrics?.gazeStability ?? 0
+        ]
 
-        // Build dynamic system prompt based on what was detected
-        var focusAreas: [String] = []
-        if hasFacialData { focusAreas.append("facial expressions (smiling, engagement, expressiveness)") }
-        if hasPostureData { focusAreas.append("body posture (confidence, natural movement, stability)") }
-        if hasEyeContactData { focusAreas.append("eye contact (camera focus, gaze stability)") }
-
-        let systemPrompt = """
-        You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics and presentation content provided, evaluate the speaker's \(focusAreas.joined(separator: ", ")) and provide detailed, contextual coaching feedback.
-
-        IMPORTANT: Only provide feedback about the metrics that were detected. Do not mention facial expressions if no facial data is available, do not mention posture if no posture data is available, and do not mention eye contact if no eye contact data is available.
-
-        Feedback Quality Guidelines:
-        - Connect body language observations to specific moments in the presentation
-        - Reference the presentation content to make feedback contextual
-        - Provide actionable advice with concrete examples
-        - Match your tone to the presentation's formality and topic
-        - Be specific and helpful, not generic (use as much detail as needed)
-
-        Respond ONLY with valid JSON matching this exact structure (no additional text):
-        {
-          "gestureFeedback": "<detailed, contextual coaching feedback about detected body language>",
-          "gestureStrength": "<specific strength with example from the presentation>",
-          "gestureImprovement": "<specific improvement area with actionable advice>"
-        }
-        """
-
-        // Build dynamic user prompt with only the detected metrics
-        var metricsSection = ""
-
-        if hasFacialData {
-            let facial = gestureMetrics.facialMetrics
-            metricsSection += """
-            FACIAL EXPRESSION METRICS:
-            - Smile frequency: \(String(format: "%.1f%%", facial.smileFrequency * 100))
-            - Expression variety: \(String(format: "%.1f%%", facial.expressionVariety * 100))
-            - Engagement level: \(String(format: "%.1f%%", facial.averageEngagement * 100))
-            - Facial score: \(gestureMetrics.facialScore)/100
-
-            """
-        }
-
-        if hasPostureData {
-            let posture = gestureMetrics.postureMetrics
-            metricsSection += """
-            BODY POSTURE METRICS:
-            - Posture confidence: \(String(format: "%.1f%%", posture.averageConfidence * 100))
-            - Movement consistency: \(String(format: "%.1f%%", posture.movementConsistency * 100))
-            - Stability: \(String(format: "%.1f%%", posture.stabilityScore * 100))
-            - Posture score: \(gestureMetrics.postureScore)/100
-
-            """
-        }
-
-        if hasEyeContactData, let eyeContact = gestureMetrics.eyeContactMetrics, let eyeContactScore = gestureMetrics.eyeContactScore {
-            metricsSection += """
-            EYE CONTACT METRICS:
-            - Camera focus: \(String(format: "%.1f%%", eyeContact.cameraFocusPercentage * 100))
-            - Time reading notes (looking down): \(String(format: "%.1f%%", eyeContact.readingNotesPercentage * 100))
-            - Gaze stability: \(String(format: "%.1f%%", eyeContact.gazeStability * 100))
-            - Eye contact score: \(eyeContactScore)/100
-
-            """
-            
-            if eyeContact.readingNotesPercentage > 0.15 {
-                metricsSection += "NOTE: The speaker frequently looked down, likely reading notes. Address this in the feedback.\n"
-            }
-        }
-
-        // Build detection note based on what was detected
-        var detectionNote = ""
-        if hasFacialData && hasPostureData && hasEyeContactData {
-            detectionNote = ""  // All metrics detected, no note needed
-        } else if hasFacialData && hasPostureData {
-            detectionNote = "\nNOTE: Eye contact was not measured in this session."
-        } else if hasFacialData && hasEyeContactData {
-            detectionNote = "\nNOTE: Body posture was not detected (body not visible in frame)."
-        } else if hasFacialData {
-            detectionNote = "\nNOTE: Only facial expressions were detected (body not visible, eye contact not measured)."
-        } else if hasPostureData {
-            detectionNote = "\nNOTE: Only body posture was detected (face not visible in frame)."
-        }
-
-        let userPrompt = """
-        Please analyze this speaker's body language:
-
-        \(metricsSection)OVERALL GESTURE SCORE: \(gestureMetrics.overallScore)/100
-        \(detectionNote)
-
-        FULL PRESENTATION TRANSCRIPTION:
-        "\(transcription)"
-
-        Provide your gesture analysis in JSON format as specified. Reference specific moments from the transcription to make your feedback contextual and helpful. Only comment on the metrics that were actually detected.
-        """
-
-        // Create chat request
-        let chatRequest = GPTChatRequest(
-            messages: [
-                GPTMessage(role: "system", content: systemPrompt),
-                GPTMessage(role: "user", content: userPrompt)
-            ],
-            maxTokens: 2000,  // Increased from 1000 for detailed, contextual feedback
-            temperature: 1.0,  // gpt-5-mini only supports default temperature
-            responseFormat: GPTChatRequest.ResponseFormat(type: "json_object")
-        )
-
-        // Encode request
-        let encoder = JSONEncoder()
-        let requestData = try encoder.encode(chatRequest)
+        let requestData = try JSONSerialization.data(withJSONObject: requestBody)
 
         // Create request
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: analyzeGestureURL)
         request.httpMethod = "POST"
-        request.setValue(config.azureAPIKey, forHTTPHeaderField: "api-key")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = requestData
         request.timeoutInterval = 60
@@ -472,94 +307,22 @@ class AzureOpenAIService: ObservableObject {
 
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
         print("💬 Gesture Feedback Response Status: \(statusCode)")
-        if let rawResponse = String(data: data, encoding: .utf8) {
-            print("💬 Gesture Feedback Raw Response:")
-            print(rawResponse)
-        } else {
-            print("💬 Gesture Feedback Raw Response: Unable to parse")
-        }
 
         do {
             try validateResponse(response, data: data)
 
-            // Parse GPT response
-            let chatResponse = try JSONDecoder().decode(GPTChatResponse.self, from: data)
-            guard let messageContent = chatResponse.choices.first?.message.content else {
-                throw AzureAPIError.parseError
-            }
-
-            print("💬 Message content from GPT:")
-            print(messageContent)
-
-            // Parse gesture analysis JSON from message content
-            guard let analysisData = messageContent.data(using: .utf8) else {
-                throw AzureAPIError.parseError
-            }
-
-            print("🔍 JSON to decode (gesture):")
-            if let jsonString = String(data: analysisData, encoding: .utf8) {
-                print(jsonString)
-            }
-
-            let decoder = JSONDecoder()
-
-            // Decode the GPT response which won't have isTemplateFallback field
-            // We'll use a temporary struct for decoding then create the proper response
-            struct GPTGestureResponse: Codable {
-                let gestureFeedback: String
-                let gestureStrength: String
-                let gestureImprovement: String
-            }
-
-            let gptResponse = try decoder.decode(GPTGestureResponse.self, from: analysisData)
-
-            // Create the final response with isTemplateFallback set to false (AI-generated)
-            let analysis = GestureAnalysisResponse(
-                gestureFeedback: gptResponse.gestureFeedback,
-                gestureStrength: gptResponse.gestureStrength,
-                gestureImprovement: gptResponse.gestureImprovement,
-                isTemplateFallback: false  // This is AI-generated feedback from GPT
-            )
-
+            let analysis = try JSONDecoder().decode(GestureAnalysisResponse.self, from: data)
             return analysis
 
         } catch {
-            print("❌ Gesture feedback decode error: \(error)")
-
-            // Log detailed decoding error information
-            if let decodingError = error as? DecodingError {
-                switch decodingError {
-                case .dataCorrupted(let context):
-                    print("   Data corrupted - Context: \(context)")
-                    print("   Coding path: \(context.codingPath)")
-                    print("   Debug description: \(context.debugDescription)")
-                    if let underlyingError = context.underlyingError {
-                        print("   Underlying error: \(underlyingError)")
-                    }
-                case .keyNotFound(let key, let context):
-                    print("   Missing key: \(key)")
-                    print("   Context: \(context)")
-                    print("   Coding path: \(context.codingPath)")
-                case .typeMismatch(let type, let context):
-                    print("   Type mismatch: expected \(type)")
-                    print("   Context: \(context)")
-                    print("   Coding path: \(context.codingPath)")
-                case .valueNotFound(let type, let context):
-                    print("   Value not found: \(type)")
-                    print("   Context: \(context)")
-                    print("   Coding path: \(context.codingPath)")
-                @unknown default:
-                    print("   Unknown decoding error")
-                }
-            }
-
+            print("❌ Gesture feedback error: \(error)")
             print("⚠️ Gesture feedback generation failed, using template")
             // Fallback to template feedback
             return generateTemplateGestureFeedback(for: gestureMetrics)
         }
     }
 
-    /// Generates template gesture feedback when GPT API fails
+    /// Generates template gesture feedback when API fails
     private func generateTemplateGestureFeedback(for metrics: GestureMetrics) -> GestureAnalysisResponse {
         let score = metrics.overallScore
         let facialScore = metrics.facialScore
@@ -691,7 +454,7 @@ class AzureOpenAIService: ObservableObject {
 
     // MARK: - Vision API (Key Frame Annotation Generation)
 
-    /// Generates contextual key frame annotation using GPT-4o vision API
+    /// Generates contextual key frame annotation using the backend proxy
     /// - Parameters:
     ///   - imageData: JPEG image data of the key frame
     ///   - type: Type of key frame (best/improve)
@@ -706,92 +469,27 @@ class AzureOpenAIService: ObservableObject {
     ) async throws -> String {
         print("📸 [VisionAPI] Generating annotation for \(type.rawValue) frame at \(String(format: "%.1f", timestamp))s")
 
-        // Build API endpoint (using GPT deployment which supports vision)
-        let urlString = config.gptURL()
-        guard let url = URL(string: urlString) else {
-            throw AzureAPIError.configurationError
-        }
+        let token = try getAuthToken()
 
         // Convert image to base64
         let base64Image = imageData.base64EncodedString()
 
-        // Build context-aware system prompt
-        let systemPrompt = """
-        You are an expert presentation coach analyzing a specific moment from a presentation. Based on the frame image and transcription context, provide one concise, specific coaching comment (20-40 words).
-
-        Guidelines:
-        - Adapt tone to presentation formality (academic = professional, casual = friendly)
-        - Reference specific visual details (posture, expression, gaze)
-        - Connect to transcription context when relevant
-        - Be specific and actionable, not generic
-        - For "best" frames: highlight what's working well
-        - For "improve" frames: suggest specific improvements
-        """
-
-        // Build type-specific guidance
-        let typeGuidance: String
-        switch type {
-        case .bestFacial:
-            typeGuidance = "This is a STRENGTH moment for facial expression. Highlight what's working well (eye contact, smile, engagement, etc.)."
-        case .bestOverall:
-            typeGuidance = "This is a STRENGTH moment overall. Highlight the combination of good expression, posture, and engagement."
-        case .improveFacial:
-            typeGuidance = "This is an IMPROVEMENT AREA for facial expression. Suggest specific ways to improve engagement, eye contact, or expressiveness."
-        case .improvePosture:
-            typeGuidance = "This is an IMPROVEMENT AREA for posture. Suggest specific ways to improve body position, confidence, or stability."
-        case .improveEyeContact:
-            typeGuidance = "This is an IMPROVEMENT AREA for eye contact. Suggest ways to improve camera focus or gaze consistency."
-        case .averageMoment:
-            typeGuidance = "This is a REPRESENTATIVE moment. Provide neutral, balanced observation."
-        }
-
-        let userPrompt = """
-        Frame type: \(type.rawValue)
-        Timestamp: \(String(format: "%.1f", timestamp))s
-
-        \(typeGuidance)
-
-        Transcription context:
-        "\(transcriptionExcerpt)"
-
-        Analyze this presentation frame and provide ONE concise coaching comment (20-40 words). Return ONLY the annotation text, no JSON, no additional formatting.
-        """
-
-        // Create vision request with image
-        let messages: [[String: Any]] = [
-            [
-                "role": "system",
-                "content": systemPrompt
-            ],
-            [
-                "role": "user",
-                "content": [
-                    [
-                        "type": "text",
-                        "text": userPrompt
-                    ],
-                    [
-                        "type": "image_url",
-                        "image_url": [
-                            "url": "data:image/jpeg;base64,\(base64Image)"
-                        ]
-                    ]
-                ]
-            ]
-        ]
-
+        // Build request body matching backend KeyFrameAnnotationRequest
         let requestBody: [String: Any] = [
-            "messages": messages,
-            "max_completion_tokens": 1500,  // Increased to allow for reasoning + output
-            "temperature": 1.0
+            "imageBase64": base64Image,
+            "frameType": type.rawValue,
+            "transcriptionExcerpt": transcriptionExcerpt,
+            "timestamp": timestamp
         ]
+
+        let requestData = try JSONSerialization.data(withJSONObject: requestBody)
 
         // Create request
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: annotateFrameURL)
         request.httpMethod = "POST"
-        request.setValue(config.azureAPIKey, forHTTPHeaderField: "api-key")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        request.httpBody = requestData
         request.timeoutInterval = 30
 
         // Make request
@@ -802,29 +500,15 @@ class AzureOpenAIService: ObservableObject {
 
         try validateResponse(response, data: data)
 
-        // Debug: Print raw response
-        if let responseString = String(data: data, encoding: .utf8) {
-            print("📸 [VisionAPI] Raw response: \(responseString)")
-        }
-
         // Parse response
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let annotation = message["content"] as? String else {
-            print("❌ [VisionAPI] Failed to parse response - missing expected fields")
-            throw AzureAPIError.parseError
+        struct AnnotationResponse: Codable {
+            let annotation: String
         }
 
-        print("📸 [VisionAPI] Raw annotation before cleaning: '\(annotation)'")
+        let annotationResponse = try JSONDecoder().decode(AnnotationResponse.self, from: data)
+        let annotation = annotationResponse.annotation
 
-        // Clean up annotation (remove quotes, extra whitespace)
-        let cleanedAnnotation = annotation
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\"", with: "")
-
-        print("📸 [VisionAPI] Generated annotation: \(cleanedAnnotation)")
-        return cleanedAnnotation
+        print("📸 [VisionAPI] Generated annotation: \(annotation)")
+        return annotation
     }
 }

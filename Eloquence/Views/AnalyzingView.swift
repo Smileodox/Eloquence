@@ -14,9 +14,9 @@ struct AnalyzingView: View {
     let project: Project?
 
     // Add services
-    @StateObject private var audioService = AudioExtractionService()
-    @StateObject private var azureService = AzureOpenAIService()
-    @StateObject private var gestureService = GestureAnalysisService()
+    private let audioService = AudioExtractionService()
+    private let azureService = AzureOpenAIService()
+    private let gestureService = GestureAnalysisService()
 
     // Network retry helper for API calls
     private let retryHelper = NetworkRetryHelper()
