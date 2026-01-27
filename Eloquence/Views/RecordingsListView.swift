@@ -13,6 +13,7 @@ struct RecordingsListView: View {
     let filterProject: Project?
     
     @State private var recordings: [RecordingItem] = []
+    @State private var isLoading = true
     @State private var showingDeleteAlert = false
     @State private var itemToDelete: RecordingItem?
     @State private var itemToEdit: RecordingItem?
@@ -27,7 +28,10 @@ struct RecordingsListView: View {
         ZStack {
             Color.bg.ignoresSafeArea()
             
-            if recordings.isEmpty {
+            if isLoading {
+                ProgressView()
+                    .scaleEffect(1.5)
+            } else if recordings.isEmpty {
                 emptyStateView
             } else {
                 recordingsList
@@ -44,7 +48,11 @@ struct RecordingsListView: View {
         .toolbarBackground(Color.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .onAppear {
-            loadRecordings()
+            Task {
+                isLoading = true
+                loadRecordings()
+                isLoading = false
+            }
         }
         .alert("Delete Recording", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }

@@ -22,6 +22,8 @@ struct RecordingView: View {
     @State private var navigateToAnalyzing = false
     @State private var showPermissionAlert = false
     @State private var recordedVideoURL: URL?
+
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .medium)
     
     init(recordingType: RecordingType? = nil, project: Project? = nil) {
         self.recordingType = recordingType
@@ -166,6 +168,8 @@ struct RecordingView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .onAppear {
             cameraManager.requestPermissionAndSetup()
+            // Prepare haptic feedback for low latency
+            hapticFeedback.prepare()
             // Check session status after a short delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 cameraManager.checkSessionStatus()
@@ -189,11 +193,14 @@ struct RecordingView: View {
     }
     
     private func toggleRecording() {
+        // Haptic feedback
+        hapticFeedback.impactOccurred()
+
         guard cameraManager.isAuthorized && cameraManager.isSessionRunning else {
             showPermissionAlert = true
             return
         }
-        
+
         isRecording.toggle()
         
         if isRecording {

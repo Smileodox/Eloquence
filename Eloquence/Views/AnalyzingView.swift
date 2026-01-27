@@ -252,6 +252,11 @@ struct AnalyzingView: View {
                     try await azureService.transcribeAudio(audioURL)
                 }
 
+                // Check if transcription is empty (no speech detected)
+                guard !transcription.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw AnalysisError.emptyTranscription
+                }
+
                 // Step 3: Analyze speech metrics locally
                 updateStep(2, message: "Analyzing pace and tone...", progress: 0.55)
                 let audioDuration = try await audioService.getAudioDuration(audioURL)
@@ -317,6 +322,8 @@ struct AnalyzingView: View {
                     }
                 }
 
+            } catch let error as AnalysisError {
+                showError(error.errorDescription ?? error.localizedDescription)
             } catch let error as AzureAPIError {
                 showError(error.userMessage)
             } catch let error as AudioExtractionError {
@@ -497,12 +504,28 @@ struct AnalyzingView: View {
             facialScore: gestureMetrics.facialScore,
             postureScore: gestureMetrics.postureScore,
             eyeContactScore: gestureMetrics.eyeContactScore,
-            keyFrames: gestureMetrics.keyFrames
+            keyFrames: gestureMetrics.keyFrames,
+            confidenceScore: analysis.confidenceScore,
+            enthusiasmScore: analysis.enthusiasmScore,
+            clarityScore: analysis.clarityScore
         )
     }
     
     private var sampleSession: PracticeSession {
         PracticeSession(date: Date(), toneScore: 85, pacingScore: 80, gesturesScore: 82)
+    }
+}
+
+// MARK: - Analysis Errors
+
+enum AnalysisError: LocalizedError {
+    case emptyTranscription
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyTranscription:
+            return "No speech detected in the recording. Please speak clearly and try again."
+        }
     }
 }
 
