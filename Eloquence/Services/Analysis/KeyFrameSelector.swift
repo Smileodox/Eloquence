@@ -2,39 +2,26 @@
 //  KeyFrameSelector.swift
 //  Eloquence
 //
-//  Service for selecting representative key frames from analyzed video
-//
 
 import Foundation
 import UIKit
 import CoreImage
 import CoreVideo
 
-/// Service responsible for selecting key frames from video analysis
 class KeyFrameSelector {
 
     // MARK: - Properties
 
-    /// Reusable CIContext for image conversion (performance optimization)
     private lazy var ciContext: CIContext = {
         let options: [CIContextOption: Any] = [
             .workingColorSpace: CGColorSpaceCreateDeviceRGB(),
-            .cacheIntermediates: false  // Key frames are one-time use
+            .cacheIntermediates: false
         ]
         return CIContext(options: options)
     }()
 
-    // MARK: - Public Methods
+    // MARK: - Selection
 
-    /// Selects key frames for visual feedback
-    /// - Parameters:
-    ///   - facialFrames: Array of analyzed facial frames
-    ///   - postureFrames: Array of analyzed posture frames
-    ///   - videoFrames: Original video frame buffers
-    ///   - facialScore: Optional facial expression score
-    ///   - postureScore: Optional posture score
-    ///   - eyeContactScore: Optional eye contact score
-    /// - Returns: Array of key frames (2-6 frames)
     func selectKeyFrames(
         from facialFrames: [FacialFrame],
         postureFrames: [PostureFrame],
@@ -43,15 +30,11 @@ class KeyFrameSelector {
         postureScore: Int?,
         eyeContactScore: Int?
     ) -> [KeyFrame] {
-        print("🖼️ [KeyFrameSelector] Selecting key frames for visual feedback...")
-
         var keyFrames: [KeyFrame] = []
-        let frameInterval = 0.5 // 2 FPS = 0.5s per frame
-
-        // Track which frame indices we've already used to avoid duplicates
+        let frameInterval = 0.5
         var usedIndices = Set<Int>()
 
-        // 1. Try to find best facial expression frame
+        // Best facial expression
         if let idx = findBestFacialFrameIndex(facialFrames), idx < videoFrames.count {
             if let frame = createKeyFrame(
                 from: videoFrames[idx],
@@ -69,7 +52,7 @@ class KeyFrameSelector {
             }
         }
 
-        // 2. Try to find best overall moment (requires both face and body)
+        // Best overall (requires both face and body)
         if !facialFrames.isEmpty && !postureFrames.isEmpty {
             if let idx = findBestOverallFrameIndex(facialFrames, postureFrames, usedIndices), idx < videoFrames.count {
                 if let frame = createKeyFrame(
@@ -89,7 +72,7 @@ class KeyFrameSelector {
             }
         }
 
-        // 3. Find improvement area: facial expression
+        // Facial improvement area
         if !facialFrames.isEmpty, let facialScore = facialScore, facialScore < 85 {
             if let idx = findWorstFacialFrameIndex(facialFrames, usedIndices), idx < videoFrames.count {
                 if let frame = createKeyFrame(
@@ -109,7 +92,7 @@ class KeyFrameSelector {
             }
         }
 
-        // 4. Find improvement area: posture
+        // Posture improvement area
         if !postureFrames.isEmpty, let postureScore = postureScore, postureScore < 85 {
             if let idx = findWorstPostureFrameIndex(postureFrames, usedIndices), idx < videoFrames.count {
                 if let frame = createKeyFrame(
@@ -129,7 +112,7 @@ class KeyFrameSelector {
             }
         }
 
-        // 5. If we have < 4 frames and eye contact issues, add eye contact improvement
+        // Eye contact improvement (if needed)
         if keyFrames.count < 4, !facialFrames.isEmpty, let eyeContactScore = eyeContactScore, eyeContactScore < 70 {
             if let idx = findWorstEyeContactFrameIndex(facialFrames, usedIndices), idx < videoFrames.count {
                 if let frame = createKeyFrame(
@@ -149,7 +132,7 @@ class KeyFrameSelector {
             }
         }
 
-        // 6. If still < 2 frames, add an average representative frame
+        // Fallback: add representative frame if we have too few
         if keyFrames.count < 2 && !videoFrames.isEmpty {
             let midIdx = videoFrames.count / 2
             if !usedIndices.contains(midIdx) {
@@ -169,13 +152,11 @@ class KeyFrameSelector {
             }
         }
 
-        print("🖼️ [KeyFrameSelector] Selected \(keyFrames.count) key frames")
         return keyFrames
     }
 
-    // MARK: - Private Helper Methods
+    // MARK: - Frame Finding
 
-    /// Finds the index of the best facial expression frame
     private func findBestFacialFrameIndex(_ frames: [FacialFrame]) -> Int? {
         guard !frames.isEmpty else { return nil }
 
@@ -189,7 +170,6 @@ class KeyFrameSelector {
         return scores.max(by: { $0.1 < $1.1 })?.0
     }
 
-    /// Finds the index of the best overall gesture frame (face + posture)
     private func findBestOverallFrameIndex(_ facialFrames: [FacialFrame], _ postureFrames: [PostureFrame], _ usedIndices: Set<Int>) -> Int? {
         let maxCount = min(facialFrames.count, postureFrames.count)
         guard maxCount > 0 else { return nil }
@@ -210,7 +190,6 @@ class KeyFrameSelector {
         return (best?.1 ?? 0) > 0 ? best?.0 : nil
     }
 
-    /// Finds the index of the worst facial expression frame (for improvement feedback)
     private func findWorstFacialFrameIndex(_ frames: [FacialFrame], _ usedIndices: Set<Int>) -> Int? {
         guard !frames.isEmpty else { return nil }
 
@@ -226,7 +205,6 @@ class KeyFrameSelector {
         return scores.min(by: { $0.1 < $1.1 })?.0
     }
 
-    /// Finds the index of the worst posture frame
     private func findWorstPostureFrameIndex(_ frames: [PostureFrame], _ usedIndices: Set<Int>) -> Int? {
         guard !frames.isEmpty else { return nil }
 
@@ -238,11 +216,9 @@ class KeyFrameSelector {
         return scores.min(by: { $0.1 < $1.1 })?.0
     }
 
-    /// Finds the index of the worst eye contact frame
     private func findWorstEyeContactFrameIndex(_ frames: [FacialFrame], _ usedIndices: Set<Int>) -> Int? {
         guard !frames.isEmpty else { return nil }
 
-        // Find frames where NOT looking at camera
         let scores = frames.enumerated().compactMap { (index, frame) -> (Int, Double)? in
             guard !usedIndices.contains(index) else { return nil }
             return (index, frame.lookingAtCamera ? 1.0 : 0.0)
@@ -251,7 +227,8 @@ class KeyFrameSelector {
         return scores.min(by: { $0.1 < $1.1 })?.0
     }
 
-    /// Creates a KeyFrame from a pixel buffer with annotation
+    // MARK: - Frame Creation
+
     private func createKeyFrame(
         from pixelBuffer: CVPixelBuffer,
         facialFrame: FacialFrame?,
@@ -263,19 +240,16 @@ class KeyFrameSelector {
         postureScore: Int?,
         eyeContactScore: Int?
     ) -> KeyFrame? {
-        // Convert CVPixelBuffer to UIImage
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
             return nil
         }
         let uiImage = UIImage(cgImage: cgImage)
 
-        // Compress to JPEG (quality 0.6 for ~30-50KB)
         guard let imageData = uiImage.jpegData(compressionQuality: 0.6) else {
             return nil
         }
 
-        // Generate annotation and score
         let (annotation, primaryMetric, isPositive) = generateAnnotation(
             type: type,
             facialFrame: facialFrame,
@@ -302,7 +276,8 @@ class KeyFrameSelector {
         )
     }
 
-    /// Generates annotation text based on frame type and metrics
+    // MARK: - Annotations
+
     private func generateAnnotation(
         type: KeyFrameType,
         facialFrame: FacialFrame?,
@@ -352,11 +327,12 @@ class KeyFrameSelector {
             return ("👀 Try looking at the camera more consistently to connect with your audience", "Eye Contact", false)
 
         case .averageMoment:
-            return ("📊 Representative moment from your presentation", "Overall", true)
+            return ("Representative moment from your presentation", "Overall", true)
         }
     }
 
-    /// Calculates a score for a specific frame
+    // MARK: - Scoring
+
     private func calculateFrameScore(
         type: KeyFrameType,
         facialFrame: FacialFrame?,

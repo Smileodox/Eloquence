@@ -385,9 +385,7 @@ struct ProgressView: View {
             Text("Key Metrics")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color.textPrimary)
-            
-            let lastSession = filteredSessions.last!
-            
+
             VStack(spacing: 12) {
                 MetricRow(
                     title: "Average Tone",

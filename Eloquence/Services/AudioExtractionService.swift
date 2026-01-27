@@ -8,13 +8,13 @@
 import Foundation
 import AVFoundation
 
-class AudioExtractionService: ObservableObject {
+class AudioExtractionService {
 
     /// Extracts audio from a video file and returns the audio file URL
     /// - Parameter videoURL: URL of the source video file (.mov)
     /// - Returns: URL of the extracted audio file (.m4a)
     func extractAudio(from videoURL: URL) async throws -> URL {
-        let asset = AVAsset(url: videoURL)
+        let asset = AVURLAsset(url: videoURL)
 
         // Verify asset is valid and readable
         guard try await asset.load(.isReadable) else {
@@ -37,20 +37,13 @@ class AudioExtractionService: ObservableObject {
 
         // Set up output
         let outputURL = try createTempAudioURL()
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .m4a
 
-        // Export audio
-        await exportSession.export()
-
-        // Check export status
-        switch exportSession.status {
-        case .completed:
+        // Export audio using new throwing API
+        do {
+            try await exportSession.export(to: outputURL, as: .m4a)
             return outputURL
-        case .failed, .cancelled:
-            throw AudioExtractionError.exportFailed(exportSession.error)
-        default:
-            throw AudioExtractionError.exportFailed(nil)
+        } catch {
+            throw AudioExtractionError.exportFailed(error)
         }
     }
 
@@ -58,7 +51,7 @@ class AudioExtractionService: ObservableObject {
     /// - Parameter audioURL: URL of the audio file
     /// - Returns: Duration in seconds
     func getAudioDuration(_ audioURL: URL) async throws -> Double {
-        let asset = AVAsset(url: audioURL)
+        let asset = AVURLAsset(url: audioURL)
         let duration = try await asset.load(.duration)
         return CMTimeGetSeconds(duration)
     }
@@ -85,7 +78,7 @@ class AudioExtractionService: ObservableObject {
             return false
         }
 
-        let asset = AVAsset(url: videoURL)
+        let asset = AVURLAsset(url: videoURL)
 
         do {
             let audioTracks = try await asset.loadTracks(withMediaType: .audio)

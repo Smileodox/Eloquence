@@ -15,6 +15,7 @@ struct RecordingView: View {
     
     @Environment(\.dismiss) var dismiss
     @StateObject private var cameraManager = CameraManager()
+    @StateObject private var audioMonitor = AudioMonitor()
     @State private var isRecording = false
     @State private var recordingTime: TimeInterval = 0
     @State private var timer: Timer?
@@ -48,25 +49,42 @@ struct RecordingView: View {
                 
                 // Timer display when recording
                 if isRecording {
-                    VStack(spacing: 12) {
+                    HStack(alignment: .center, spacing: 8) {
+                        // Recording indicator on left - SMALLER
+                        HStack(spacing: 4) {
+                            RecordingIndicator()
+                                .scaleEffect(0.7)
+                            Text("REC")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.black.opacity(0.5))
+                        .cornerRadius(12)
+                        .fixedSize()
+
+                        Spacer()
+
+                        // Timer in center - SMALLER FONT
                         Text(formatTime(recordingTime))
-                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
                             .shadow(color: .black.opacity(0.5), radius: 8)
-                        
-                        HStack(spacing: 8) {
-                            RecordingIndicator()
-                            
-                            Text("Recording")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(.black.opacity(0.5))
-                        .cornerRadius(20)
+                            .lineLimit(1)
+                            .fixedSize()
+
+                        Spacer()
+
+                        // Waveform on right - SMALLER
+                        AudioVisualizerView(levels: audioMonitor.audioLevels)
+                            .frame(width: 60, height: 20)
+                            .clipped()
                     }
-                    .padding(.bottom, 40)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
                 } else {
                     Text("Ready to practice?")
                         .font(.system(size: 20, weight: .semibold))
@@ -132,6 +150,17 @@ struct RecordingView: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
             }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    cameraManager.flipCamera()
+                }) {
+                    Image(systemName: "camera.rotate")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white)
+                }
+                .disabled(isRecording)
+            }
         }
         .toolbarBackground(Color.black.opacity(0.5), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
@@ -177,7 +206,8 @@ struct RecordingView: View {
     private func startRecording() {
         recordingTime = 0
         cameraManager.startRecording()
-        
+        audioMonitor.startMonitoring()
+
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             recordingTime += 0.1
         }
@@ -186,11 +216,12 @@ struct RecordingView: View {
     private func stopRecording() {
         timer?.invalidate()
         timer = nil
-        
+        audioMonitor.stopMonitoring()
+
         cameraManager.stopRecording { url in
             // Video saved at url
             print("Video saved at: \(url?.path ?? "unknown")")
-            
+
             // Store video URL and navigate to analyzing screen
             if let url = url {
                 recordedVideoURL = url
@@ -212,8 +243,9 @@ struct RecordingView: View {
 class CameraManager: NSObject, ObservableObject, AVCaptureFileOutputRecordingDelegate {
     @Published var isAuthorized = false
     @Published var isSessionRunning = false
+    @Published var currentCameraPosition: AVCaptureDevice.Position = .front
     let captureSession = AVCaptureSession()
-    
+
     private let videoOutput = AVCaptureMovieFileOutput()
     private var recordingCompletion: ((URL?) -> Void)?
     private var videoInput: AVCaptureDeviceInput?
@@ -259,8 +291,8 @@ class CameraManager: NSObject, ObservableObject, AVCaptureFileOutputRecordingDel
         
         // Add video input
         do {
-            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
-                print("No front camera available")
+            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
+                print("No camera available for position: \(currentCameraPosition)")
                 captureSession.commitConfiguration()
                 return
             }
@@ -318,16 +350,55 @@ class CameraManager: NSObject, ObservableObject, AVCaptureFileOutputRecordingDel
     func cleanup() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            
+
             if self.videoOutput.isRecording {
                 self.videoOutput.stopRecording()
             }
-            
+
             if self.captureSession.isRunning {
                 self.captureSession.stopRunning()
                 DispatchQueue.main.async {
                     self.isSessionRunning = false
                 }
+            }
+        }
+    }
+
+    func flipCamera() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            // Determine new position
+            let newPosition: AVCaptureDevice.Position = self.currentCameraPosition == .front ? .back : .front
+
+            self.captureSession.beginConfiguration()
+
+            // Remove existing video input
+            if let currentInput = self.videoInput {
+                self.captureSession.removeInput(currentInput)
+            }
+
+            // Add new camera
+            guard let newCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: newPosition),
+                  let newInput = try? AVCaptureDeviceInput(device: newCamera),
+                  self.captureSession.canAddInput(newInput) else {
+                print("Failed to flip camera to position: \(newPosition)")
+                // Re-add the old input if flip failed
+                if let currentInput = self.videoInput, self.captureSession.canAddInput(currentInput) {
+                    self.captureSession.addInput(currentInput)
+                }
+                self.captureSession.commitConfiguration()
+                return
+            }
+
+            self.captureSession.addInput(newInput)
+            self.videoInput = newInput
+
+            self.captureSession.commitConfiguration()
+
+            DispatchQueue.main.async {
+                self.currentCameraPosition = newPosition
+                print("✅ Camera flipped to: \(newPosition == .front ? "front" : "back")")
             }
         }
     }

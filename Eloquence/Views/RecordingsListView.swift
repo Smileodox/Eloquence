@@ -15,8 +15,6 @@ struct RecordingsListView: View {
     @State private var recordings: [RecordingItem] = []
     @State private var showingDeleteAlert = false
     @State private var itemToDelete: RecordingItem?
-    @State private var sessionToView: PracticeSession?
-    @State private var navigateToFeedback = false
     @State private var itemToEdit: RecordingItem?
     @State private var showingEditAlert = false
     @State private var editedName = ""
@@ -129,10 +127,6 @@ struct RecordingsListView: View {
                             itemToDelete = recording
                             showingDeleteAlert = true
                         },
-                        onAnalyze: { session in
-                            sessionToView = session
-                            navigateToFeedback = true
-                        },
                         onEdit: {
                             itemToEdit = recording
                             editedName = recording.displayName
@@ -142,11 +136,6 @@ struct RecordingsListView: View {
                 }
             }
             .padding(Theme.largeSpacing)
-        }
-        .navigationDestination(isPresented: $navigateToFeedback) {
-            if let session = sessionToView {
-                FeedbackView(session: session)
-            }
         }
     }
     
@@ -249,7 +238,6 @@ struct RecordingRow: View {
     let videoURL: URL
     let userSession: UserSession
     let onDelete: () -> Void
-    let onAnalyze: (PracticeSession) -> Void
     let onEdit: () -> Void
     @State private var thumbnail: UIImage?
     
@@ -265,107 +253,108 @@ struct RecordingRow: View {
     
     var body: some View {
         HStack(spacing: Theme.spacing) {
-            // Clickable area for video playback
+            // Video preview thumbnail (tappable for video playback)
             NavigationLink(destination: VideoPlayerView(videoURL: videoURL)) {
-                HStack(spacing: Theme.spacing) {
-                    // Thumbnail with play button
-                    ZStack {
-                        if let thumbnail = thumbnail {
-                            Image(uiImage: thumbnail)
-                                .resizable()
-                                .scaledToFill()
-                        } else {
-                            // Loading skeleton
-                            ZStack {
-                                Color.bgLight
+                ZStack {
+                    if let thumbnail = thumbnail {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        // Loading skeleton
+                        ZStack {
+                            Color.bgLight
 
-                                ProgressView()
-                                    .tint(Color.textMuted)
-                            }
-                        }
-
-                        // Play button overlay
-                        if thumbnail != nil {
-                            ZStack {
-                                Circle()
-                                    .fill(.black.opacity(0.6))
-                                    .frame(width: 50, height: 50)
-
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(.white)
-                                    .offset(x: 2)
-                            }
+                            ProgressView()
+                                .tint(Color.textMuted)
                         }
                     }
-                    .frame(width: 80, height: 80)
-                    .cornerRadius(Theme.smallCornerRadius)
-                    .clipped()
-                    
-                    // Info
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(recording.displayName)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.textPrimary)
-                        
-                        Text(recording.formattedDate)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color.textMuted)
-                        
-                        Text(recording.formattedSize)
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundStyle(Color.textMuted)
+
+                    // Play button overlay
+                    if thumbnail != nil {
+                        ZStack {
+                            Circle()
+                                .fill(.black.opacity(0.6))
+                                .frame(width: 50, height: 50)
+
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.white)
+                                .offset(x: 2)
+                        }
                     }
-                    
-                    Spacer()
                 }
+                .frame(width: 80, height: 80)
+                .cornerRadius(Theme.smallCornerRadius)
+                .clipped()
             }
             .buttonStyle(PlainButtonStyle())
-            
-            // Action buttons - vertical stack
-            VStack(spacing: 8) {
-                // Edit button
-                Button(action: onEdit) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 20))
-                        .foregroundStyle(Color.primary)
-                        .padding(12)
+
+            // Info area (tappable for feedback if analyzed)
+            if let session = matchingSession {
+                // Analyzed recording - navigate to feedback
+                NavigationLink(destination: FeedbackView(session: session, entryPoint: .recordingsList)) {
+                    infoSection(showChevron: true)
                 }
                 .buttonStyle(PlainButtonStyle())
-                
-                // Analyze button
-                if let session = matchingSession {
-                    Button(action: {
-                        onAnalyze(session)
-                    }) {
-                        Image(systemName: "chart.bar.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(Color.primary)
-                            .padding(12)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                
-                // Delete button
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 20))
-                        .foregroundStyle(Color.danger)
-                        .padding(12)
-                }
-                .buttonStyle(PlainButtonStyle())
+            } else {
+                // Not analyzed yet - no navigation
+                infoSection(showChevron: false)
             }
         }
         .padding(Theme.spacing)
         .background(Color.bgLight)
         .cornerRadius(Theme.cornerRadius)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+
+            Button {
+                onEdit()
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            .tint(.blue)
+        }
         .onAppear {
             generateThumbnail()
         }
     }
+
+    @ViewBuilder
+    private func infoSection(showChevron: Bool) -> some View {
+        HStack(spacing: Theme.spacing) {
+            // Info
+            VStack(alignment: .leading, spacing: 6) {
+                Text(recording.displayName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
+
+                Text(recording.formattedDate)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+
+                Text(recording.formattedSize)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(Color.textMuted)
+            }
+
+            Spacer()
+
+            // Chevron indicator when feedback is available
+            if showChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.textMuted)
+            }
+        }
+    }
     
     private func generateThumbnail() {
-        let asset = AVAsset(url: videoURL)
+        let asset = AVURLAsset(url: videoURL)
         let imageGenerator = AVAssetImageGenerator(asset: asset)
         imageGenerator.appliesPreferredTrackTransform = true
         

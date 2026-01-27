@@ -122,22 +122,21 @@ struct LoginView: View {
             Button(action: sendCode) {
                 ZStack {
                     if userSession.isSendingCode {
-                        ProgressView()
-                            .tint(Color.bg)
+                        SwiftUI.ProgressView()
+                            .tint(email.isEmpty ? Color.bg.opacity(0.5) : Color.bg)
                     } else {
                         HStack {
                             Text("Send Login Code")
                                 .font(.system(size: 18, weight: .semibold))
                             Image(systemName: "arrow.right")
                         }
+                        .foregroundStyle(email.isEmpty ? Color.bg.opacity(0.5) : Color.bg)
                     }
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: Theme.buttonHeight)
-                .foregroundStyle(Color.bg)
-                .background(Color.primary)
+                .background(email.isEmpty ? Color.primary.opacity(0.5) : Color.primary)
                 .cornerRadius(Theme.cornerRadius)
-                .opacity(email.isEmpty ? 0.6 : 1.0)
             }
             .disabled(email.isEmpty || userSession.isSendingCode)
             .padding(.top, Theme.spacing)
@@ -152,6 +151,18 @@ struct LoginView: View {
     
     var otpInputView: some View {
         VStack(spacing: Theme.spacing) {
+            // Show sending indicator while OTP is being sent
+            if userSession.isSendingCode {
+                HStack(spacing: 8) {
+                    SwiftUI.ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Sending code...")
+                        .font(.caption)
+                        .foregroundStyle(Color.textMuted)
+                }
+                .padding(.bottom, 8)
+            }
+
             Text("Enter the 6-digit code sent to")
                 .foregroundStyle(Color.textMuted)
             Text(email)
@@ -186,11 +197,11 @@ struct LoginView: View {
                     .textContentType(.oneTimeCode)
                     .focused($focusedField, equals: .otp)
                     .opacity(0.01) // Invisible but interactive
-                    .onChange(of: otpCode) { newValue in
-                        if newValue.count > 6 {
-                            otpCode = String(newValue.prefix(6))
+                    .onChange(of: otpCode) {
+                        if otpCode.count > 6 {
+                            otpCode = String(otpCode.prefix(6))
                         }
-                        if newValue.count == 6 {
+                        if otpCode.count == 6 {
                             verifyCode()
                         }
                     }
@@ -200,22 +211,21 @@ struct LoginView: View {
             Button(action: verifyCode) {
                 ZStack {
                     if userSession.isVerifyingCode {
-                        ProgressView()
-                            .tint(Color.bg)
+                        SwiftUI.ProgressView()
+                            .tint(otpCode.count < 6 ? Color.bg.opacity(0.5) : Color.bg)
                     } else {
                         HStack {
                             Text("Verify & Login")
                                 .font(.system(size: 18, weight: .semibold))
                             Image(systemName: "checkmark.circle.fill")
                         }
+                        .foregroundStyle(otpCode.count < 6 ? Color.bg.opacity(0.5) : Color.bg)
                     }
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: Theme.buttonHeight)
-                .foregroundStyle(Color.bg)
-                .background(Color.primary)
+                .background(otpCode.count < 6 ? Color.primary.opacity(0.5) : Color.primary)
                 .cornerRadius(Theme.cornerRadius)
-                .opacity(otpCode.count < 6 ? 0.6 : 1.0)
             }
             .disabled(otpCode.count < 6 || userSession.isVerifyingCode)
             
@@ -237,11 +247,19 @@ struct LoginView: View {
     
     private func sendCode() {
         guard !email.isEmpty else { return }
+
+        // Show PIN screen immediately for better UX
+        withAnimation {
+            loginStep = .code
+        }
+
+        // Send OTP in background
         Task {
             let success = await userSession.sendOTP(email: email)
-            if success {
+            if !success {
+                // On failure, show error and return to email screen
                 withAnimation {
-                    loginStep = .code
+                    loginStep = .email
                 }
             }
         }
