@@ -7,6 +7,8 @@ import SwiftUI
 import Combine
 
 struct AnalyzingView: View {
+    @EnvironmentObject var userSession: UserSession
+
     let videoURL: URL?
     let recordingType: RecordingType?
     let project: Project?
@@ -262,7 +264,12 @@ struct AnalyzingView: View {
 
                 // Step 4: Analyze gestures (facial expressions + body posture)
                 updateStep(3, message: "Analyzing facial expressions and posture...", progress: 0.75)
-                let gestureMetrics = try await gestureService.analyzeVideo(from: videoURL)
+                let analysisSettings = AnalysisSettings(
+                    enableEyeContact: userSession.enableEyeContactAnalysis,
+                    enableFacial: userSession.enableFacialAnalysis,
+                    enablePosture: userSession.enablePostureAnalysis
+                )
+                let gestureMetrics = try await gestureService.analyzeVideo(from: videoURL, settings: analysisSettings)
 
                 // Step 5: Generate ALL feedback in parallel (Text + Vision)
                 updateStep(4, message: "Generating personalized feedback...", progress: 0.90)

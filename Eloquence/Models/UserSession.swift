@@ -14,9 +14,22 @@ class UserSession: ObservableObject {
     @Published var email: String = ""
     
     // Settings
-    @Published var aiVoiceStyle: AIVoiceStyle = .neutral
+    @Published var aiVoiceStyle: AIVoiceStyle = .neutral {
+        didSet { saveAIVoiceStyle() }
+    }
     @Published var useCameraFeedback: Bool = true
     @Published var receiveWeeklySummary: Bool = true
+
+    // AI Analysis Settings
+    @Published var enableEyeContactAnalysis: Bool = true {
+        didSet { UserDefaults.standard.set(enableEyeContactAnalysis, forKey: enableEyeContactKey) }
+    }
+    @Published var enableFacialAnalysis: Bool = true {
+        didSet { UserDefaults.standard.set(enableFacialAnalysis, forKey: enableFacialKey) }
+    }
+    @Published var enablePostureAnalysis: Bool = true {
+        didSet { UserDefaults.standard.set(enablePostureAnalysis, forKey: enablePostureKey) }
+    }
     
     // Session tracking
     @Published var sessions: [PracticeSession] = [] {
@@ -47,11 +60,16 @@ class UserSession: ObservableObject {
     private let sessionsKey = "savedSessions"
     private let lastImprovementKey = "lastImprovement"
     private let projectsKey = "savedProjects"
+    private let enableEyeContactKey = "enableEyeContactAnalysis"
+    private let enableFacialKey = "enableFacialAnalysis"
+    private let enablePostureKey = "enablePostureAnalysis"
+    private let aiVoiceStyleKey = "aiVoiceStyle"
     
     init() {
         loadSessions()
         loadLastImprovement()
         loadProjects()
+        loadAISettings()
         restoreSession()
     }
 
@@ -148,6 +166,27 @@ class UserSession: ObservableObject {
     
     private func loadLastImprovement() {
         self.lastImprovement = UserDefaults.standard.integer(forKey: lastImprovementKey)
+    }
+
+    private func loadAISettings() {
+        // Load with defaults of true if not set
+        if UserDefaults.standard.object(forKey: enableEyeContactKey) != nil {
+            enableEyeContactAnalysis = UserDefaults.standard.bool(forKey: enableEyeContactKey)
+        }
+        if UserDefaults.standard.object(forKey: enableFacialKey) != nil {
+            enableFacialAnalysis = UserDefaults.standard.bool(forKey: enableFacialKey)
+        }
+        if UserDefaults.standard.object(forKey: enablePostureKey) != nil {
+            enablePostureAnalysis = UserDefaults.standard.bool(forKey: enablePostureKey)
+        }
+        if let styleString = UserDefaults.standard.string(forKey: aiVoiceStyleKey),
+           let style = AIVoiceStyle(rawValue: styleString) {
+            aiVoiceStyle = style
+        }
+    }
+
+    private func saveAIVoiceStyle() {
+        UserDefaults.standard.set(aiVoiceStyle.rawValue, forKey: aiVoiceStyleKey)
     }
     
     func addProject(_ project: Project) {

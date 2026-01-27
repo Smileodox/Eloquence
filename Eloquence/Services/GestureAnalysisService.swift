@@ -10,6 +10,12 @@ import CoreImage
 import Accelerate
 import UIKit
 
+struct AnalysisSettings {
+    var enableEyeContact: Bool = true
+    var enableFacial: Bool = true
+    var enablePosture: Bool = true
+}
+
 class GestureAnalysisService {
 
     // MARK: - Properties
@@ -29,7 +35,7 @@ class GestureAnalysisService {
 
     // MARK: - Analysis
 
-    func analyzeVideo(from videoURL: URL) async throws -> GestureMetrics {
+    func analyzeVideo(from videoURL: URL, settings: AnalysisSettings = AnalysisSettings()) async throws -> GestureMetrics {
         print("[Gesture] Starting analysis for: \(videoURL.lastPathComponent)")
 
         var facialFrames: [FacialFrame] = []
@@ -42,15 +48,19 @@ class GestureAnalysisService {
             totalProcessedFrames += 1
             videoFrames.append(pixelBuffer)
 
-            autoreleasepool {
-                if let facialFrame = try? self.visionAnalyzer.analyzeFacialFrame(pixelBuffer) {
-                    facialFrames.append(facialFrame)
+            if settings.enableFacial {
+                autoreleasepool {
+                    if let facialFrame = try? self.visionAnalyzer.analyzeFacialFrame(pixelBuffer) {
+                        facialFrames.append(facialFrame)
+                    }
                 }
             }
 
-            autoreleasepool {
-                if let postureFrame = try? self.visionAnalyzer.analyzePostureFrame(pixelBuffer) {
-                    postureFrames.append(postureFrame)
+            if settings.enablePosture {
+                autoreleasepool {
+                    if let postureFrame = try? self.visionAnalyzer.analyzePostureFrame(pixelBuffer) {
+                        postureFrames.append(postureFrame)
+                    }
                 }
             }
         }
@@ -73,7 +83,9 @@ class GestureAnalysisService {
             print("[Gesture] Low face detection rate: \(String(format: "%.1f%%", facialMetrics.detectionRate * 100))")
         }
 
-        let eyeContactMetrics = !facialFrames.isEmpty ? calculateEyeContactMetrics(from: facialFrames) : nil
+        let eyeContactMetrics = (settings.enableEyeContact && !facialFrames.isEmpty)
+            ? calculateEyeContactMetrics(from: facialFrames)
+            : nil
 
         let facialScore = !facialFrames.isEmpty ? scorer.calculateFacialScore(facialMetrics) : nil
         let postureScore = !postureFrames.isEmpty ? scorer.calculatePostureScore(postureMetrics) : nil
