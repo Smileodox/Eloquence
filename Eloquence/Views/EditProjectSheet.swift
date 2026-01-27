@@ -64,6 +64,7 @@ struct EditProjectSheet: View {
                             DatePicker(
                                 "Due Date",
                                 selection: $dueDate,
+                                in: Date()...,
                                 displayedComponents: [.date]
                             )
                             .datePickerStyle(.compact)

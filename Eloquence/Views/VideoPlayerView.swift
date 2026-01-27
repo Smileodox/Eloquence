@@ -12,7 +12,8 @@ struct VideoPlayerView: View {
     let videoURL: URL
     @Environment(\.dismiss) var dismiss
     @State private var player: AVPlayer?
-    
+    @State private var observer: NSObjectProtocol?
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -39,6 +40,9 @@ struct VideoPlayerView: View {
             setupPlayer()
         }
         .onDisappear {
+            if let observer = observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
             player?.pause()
             player = nil
         }
@@ -47,13 +51,13 @@ struct VideoPlayerView: View {
     private func setupPlayer() {
         player = AVPlayer(url: videoURL)
         player?.play()
-        
-        // Loop the video
-        NotificationCenter.default.addObserver(
+
+        // Loop the video - store observer for cleanup
+        observer = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player?.currentItem,
             queue: .main
-        ) { _ in
+        ) { [weak player] _ in
             player?.seek(to: .zero)
             player?.play()
         }
