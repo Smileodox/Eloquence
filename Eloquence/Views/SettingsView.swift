@@ -26,7 +26,59 @@ struct SettingsView: View {
                             .foregroundStyle(Color.primary)
                     }
                     .padding(.top, Theme.spacing)
-                    
+
+                    // AI Settings Section
+                    VStack(alignment: .leading, spacing: Theme.spacing) {
+                        Text("AI Settings")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(Color.textPrimary)
+                            .padding(.bottom, 4)
+
+                        // AI Voice Style Picker
+                        HStack {
+                            Image(systemName: "waveform")
+                                .foregroundStyle(Color.primary)
+                                .frame(width: 28)
+                            Text("AI Voice Style")
+                                .font(.system(size: 16, weight: .medium))
+                            Spacer()
+                            Picker("", selection: $userSession.aiVoiceStyle) {
+                                ForEach(AIVoiceStyle.allCases, id: \.self) { style in
+                                    Text(style.rawValue).tag(style)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .tint(.primary)
+                        }
+                        .padding()
+                        .background(Color.bgLight)
+                        .cornerRadius(Theme.cornerRadius)
+
+                        // Analysis Toggles
+                        VStack(spacing: 0) {
+                            SettingsToggleRow(
+                                icon: "eye",
+                                title: "Eye Contact Tracking",
+                                isOn: $userSession.enableEyeContactAnalysis
+                            )
+                            Divider().padding(.leading, 44)
+                            SettingsToggleRow(
+                                icon: "face.smiling",
+                                title: "Facial Expression Analysis",
+                                isOn: $userSession.enableFacialAnalysis
+                            )
+                            Divider().padding(.leading, 44)
+                            SettingsToggleRow(
+                                icon: "figure.stand",
+                                title: "Posture Analysis",
+                                isOn: $userSession.enablePostureAnalysis
+                            )
+                        }
+                        .background(Color.bgLight)
+                        .cornerRadius(Theme.cornerRadius)
+                    }
+                    .padding(.horizontal, Theme.largeSpacing)
+
                     // Reset Progress button
                     Button(action: {
                         showResetProgressAlert = true
@@ -150,6 +202,26 @@ struct SettingsView: View {
         } catch {
             print("Error deleting all recordings: \(error)")
         }
+    }
+}
+
+struct SettingsToggleRow: View {
+    let icon: String
+    let title: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundStyle(Color.primary)
+                .frame(width: 28)
+            Text(title)
+                .font(.system(size: 16, weight: .medium))
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .tint(.primary)
+        }
+        .padding()
     }
 }
 
