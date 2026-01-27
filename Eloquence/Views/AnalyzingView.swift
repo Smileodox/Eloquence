@@ -2,8 +2,6 @@
 //  AnalyzingView.swift
 //  Eloquence
 //
-//  Created by Johannes Gruber on 10.11.25.
-//
 
 import SwiftUI
 import Combine

@@ -3,26 +3,46 @@ Azure OpenAI Service - Handles all Azure OpenAI API calls.
 """
 import httpx
 import base64
+import logging
 from typing import Optional
 from app.config import settings
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 class AzureOpenAIService:
     """Service for Azure OpenAI API interactions (Whisper + GPT)."""
 
     def __init__(self):
-        self.endpoint = settings.azure_openai_endpoint.rstrip("/")
-        self.api_key = settings.azure_openai_api_key
-        self.whisper_deployment = settings.azure_openai_whisper_deployment
-        self.whisper_api_version = settings.azure_openai_whisper_api_version
-        self.gpt_deployment = settings.azure_openai_gpt_deployment
-        self.gpt_api_version = settings.azure_openai_gpt_api_version
+        # Whisper config (separate resource)
+        self.whisper_endpoint = settings.azure_whisper_endpoint.rstrip("/")
+        self.whisper_api_key = settings.azure_whisper_api_key
+        self.whisper_deployment = settings.azure_whisper_deployment
+        self.whisper_api_version = settings.azure_whisper_api_version
+
+        # GPT config (separate resource)
+        self.gpt_endpoint = settings.azure_gpt_endpoint.rstrip("/")
+        self.gpt_api_key = settings.azure_gpt_api_key
+        self.gpt_deployment = settings.azure_gpt_deployment
+        self.gpt_api_version = settings.azure_gpt_api_version
+
+        # Log config on init (mask API keys)
+        masked_whisper_key = f"{self.whisper_api_key[:4]}...{self.whisper_api_key[-4:]}" if len(self.whisper_api_key) > 8 else "NOT SET"
+        masked_gpt_key = f"{self.gpt_api_key[:4]}...{self.gpt_api_key[-4:]}" if len(self.gpt_api_key) > 8 else "NOT SET"
+        logger.info(f"[Whisper] Endpoint: {self.whisper_endpoint}")
+        logger.info(f"[Whisper] API Key: {masked_whisper_key}")
+        logger.info(f"[Whisper] Deployment: {self.whisper_deployment} (v{self.whisper_api_version})")
+        logger.info(f"[GPT] Endpoint: {self.gpt_endpoint}")
+        logger.info(f"[GPT] API Key: {masked_gpt_key}")
+        logger.info(f"[GPT] Deployment: {self.gpt_deployment} (v{self.gpt_api_version})")
 
     def _whisper_url(self) -> str:
-        return f"{self.endpoint}/openai/deployments/{self.whisper_deployment}/audio/transcriptions?api-version={self.whisper_api_version}"
+        return f"{self.whisper_endpoint}/openai/deployments/{self.whisper_deployment}/audio/transcriptions?api-version={self.whisper_api_version}"
 
     def _gpt_url(self) -> str:
-        return f"{self.endpoint}/openai/deployments/{self.gpt_deployment}/chat/completions?api-version={self.gpt_api_version}"
+        return f"{self.gpt_endpoint}/openai/deployments/{self.gpt_deployment}/chat/completions?api-version={self.gpt_api_version}"
 
     async def transcribe_audio(self, audio_data: bytes, filename: str = "audio.m4a") -> dict:
         """
@@ -36,6 +56,8 @@ class AzureOpenAIService:
             dict with text, duration, language
         """
         url = self._whisper_url()
+        logger.info(f"[Whisper] Request URL: {url}")
+        logger.info(f"[Whisper] Audio size: {len(audio_data)} bytes, filename: {filename}")
 
         # Determine content type from filename
         content_type = "audio/m4a"
@@ -43,20 +65,39 @@ class AzureOpenAIService:
             content_type = "audio/wav"
         elif filename.endswith(".mp3"):
             content_type = "audio/mpeg"
+        logger.info(f"[Whisper] Content-Type: {content_type}")
 
         files = {
             "file": (filename, audio_data, content_type),
             "model": (None, "whisper-1"),
         }
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                url,
-                headers={"api-key": self.api_key},
-                files=files,
-            )
-            response.raise_for_status()
-            return response.json()
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                logger.info(f"[Whisper] Sending request...")
+                response = await client.post(
+                    url,
+                    headers={"api-key": self.whisper_api_key},
+                    files=files,
+                )
+                logger.info(f"[Whisper] Response status: {response.status_code}")
+
+                if response.status_code != 200:
+                    logger.error(f"[Whisper] Error response body: {response.text}")
+
+                response.raise_for_status()
+                result = response.json()
+                logger.info(f"[Whisper] Success - transcribed {len(result.get('text', ''))} chars")
+                return result
+        except httpx.TimeoutException as e:
+            logger.error(f"[Whisper] Timeout after 60s: {e}")
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f"[Whisper] HTTP error {e.response.status_code}: {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"[Whisper] Unexpected error: {type(e).__name__}: {e}")
+            raise
 
     async def analyze_speech(
         self,
@@ -286,28 +327,48 @@ Analyze this presentation frame and provide ONE concise coaching comment (20-40 
         ]
 
         url = self._gpt_url()
+        logger.info(f"[Vision] Request URL: {url}")
+        logger.info(f"[Vision] Frame type: {frame_type}, timestamp: {timestamp:.1f}s, image: {len(image_base64)} chars base64")
+
         request_body = {
             "messages": messages,
             "max_completion_tokens": 1500,
             "temperature": 1.0,
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                url,
-                headers={
-                    "api-key": self.api_key,
-                    "Content-Type": "application/json",
-                },
-                json=request_body,
-            )
-            response.raise_for_status()
-            data = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                logger.info(f"[Vision] Sending request...")
+                response = await client.post(
+                    url,
+                    headers={
+                        "api-key": self.gpt_api_key,
+                        "Content-Type": "application/json",
+                    },
+                    json=request_body,
+                )
+                logger.info(f"[Vision] Response status: {response.status_code}")
 
-        # Extract annotation from response
-        annotation = data["choices"][0]["message"]["content"]
-        # Clean up annotation
-        return annotation.strip().replace('"', "")
+                if response.status_code != 200:
+                    logger.error(f"[Vision] Error response body: {response.text}")
+
+                response.raise_for_status()
+                data = response.json()
+
+            # Extract annotation from response
+            annotation = data["choices"][0]["message"]["content"]
+            logger.info(f"[Vision] Success - annotation: {annotation[:50]}...")
+            # Clean up annotation
+            return annotation.strip().replace('"', "")
+        except httpx.TimeoutException as e:
+            logger.error(f"[Vision] Timeout after 30s: {e}")
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f"[Vision] HTTP error {e.response.status_code}: {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"[Vision] Unexpected error: {type(e).__name__}: {e}")
+            raise
 
     async def _chat_completion(
         self,
@@ -318,6 +379,8 @@ Analyze this presentation frame and provide ONE concise coaching comment (20-40 
     ) -> dict:
         """Internal helper for GPT chat completions."""
         url = self._gpt_url()
+        logger.info(f"[GPT] Request URL: {url}")
+        logger.info(f"[GPT] Prompt length: {len(user_prompt)} chars, max_tokens: {max_tokens}")
 
         request_body = {
             "messages": [
@@ -331,22 +394,39 @@ Analyze this presentation frame and provide ONE concise coaching comment (20-40 
         if json_response:
             request_body["response_format"] = {"type": "json_object"}
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                url,
-                headers={
-                    "api-key": self.api_key,
-                    "Content-Type": "application/json",
-                },
-                json=request_body,
-            )
-            response.raise_for_status()
-            data = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                logger.info(f"[GPT] Sending request...")
+                response = await client.post(
+                    url,
+                    headers={
+                        "api-key": self.gpt_api_key,
+                        "Content-Type": "application/json",
+                    },
+                    json=request_body,
+                )
+                logger.info(f"[GPT] Response status: {response.status_code}")
 
-        # Parse the content from the response
-        content = data["choices"][0]["message"]["content"]
+                if response.status_code != 200:
+                    logger.error(f"[GPT] Error response body: {response.text}")
 
-        if json_response:
-            import json
-            return json.loads(content)
-        return {"content": content}
+                response.raise_for_status()
+                data = response.json()
+
+            # Parse the content from the response
+            content = data["choices"][0]["message"]["content"]
+            logger.info(f"[GPT] Success - response {len(content)} chars")
+
+            if json_response:
+                import json
+                return json.loads(content)
+            return {"content": content}
+        except httpx.TimeoutException as e:
+            logger.error(f"[GPT] Timeout after 60s: {e}")
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f"[GPT] HTTP error {e.response.status_code}: {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"[GPT] Unexpected error: {type(e).__name__}: {e}")
+            raise

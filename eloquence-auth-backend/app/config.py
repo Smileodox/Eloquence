@@ -24,13 +24,17 @@ class Settings(BaseSettings):
     # Environment
     environment: str = "production"
 
-    # Azure OpenAI Configuration
-    azure_openai_endpoint: str = ""
-    azure_openai_api_key: str = ""
-    azure_openai_whisper_deployment: str = "whisper"
-    azure_openai_whisper_api_version: str = "2024-06-01"
-    azure_openai_gpt_deployment: str = "gpt-5-mini"
-    azure_openai_gpt_api_version: str = "2025-04-01-preview"
+    # Azure Whisper Configuration (separate resource)
+    azure_whisper_endpoint: str = ""
+    azure_whisper_api_key: str = ""
+    azure_whisper_deployment: str = "whisper"
+    azure_whisper_api_version: str = "2024-06-01"
+
+    # Azure GPT Configuration (separate resource)
+    azure_gpt_endpoint: str = ""
+    azure_gpt_api_key: str = ""
+    azure_gpt_deployment: str = "gpt-5"
+    azure_gpt_api_version: str = "2025-01-01-preview"
 
     # LLM Access Control - comma-separated list of allowed emails
     llm_allowed_emails: str = ""

@@ -1,6 +1,7 @@
 """
 LLM Proxy Router - Proxies Azure OpenAI API calls with authentication and email whitelist.
 """
+import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, status, Header, UploadFile, File
 from app.models import (
@@ -12,6 +13,8 @@ from app.models import (
 from app.services.storage_service import StorageService
 from app.services.azure_openai_service import AzureOpenAIService
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/llm", tags=["LLM Proxy"])
 
@@ -79,12 +82,15 @@ async def transcribe_audio(
     Expects multipart form data with audio file.
     Requires valid session token and whitelisted email.
     """
+    logger.info(f"[Router] /transcribe - filename: {file.filename}")
     await validate_session_and_whitelist(authorization)
 
     # Read file content
     audio_data = await file.read()
+    logger.info(f"[Router] /transcribe - received {len(audio_data)} bytes")
 
     if len(audio_data) == 0:
+        logger.warning("[Router] /transcribe - empty file rejected")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty audio file.",
@@ -92,12 +98,14 @@ async def transcribe_audio(
 
     # Limit file size (10MB)
     if len(audio_data) > 10 * 1024 * 1024:
+        logger.warning(f"[Router] /transcribe - file too large: {len(audio_data)} bytes")
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="Audio file too large. Maximum size is 10MB.",
         )
 
     try:
+        logger.info("[Router] /transcribe - calling Azure OpenAI...")
         result = await openai_service.transcribe_audio(
             audio_data=audio_data,
             filename=file.filename or "audio.m4a",
@@ -106,11 +114,13 @@ async def transcribe_audio(
         # Validate transcription is not empty
         text = result.get("text", "").strip()
         if not text:
+            logger.warning("[Router] /transcribe - empty transcription returned")
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Transcription returned empty. Audio may be silent or unclear.",
             )
 
+        logger.info(f"[Router] /transcribe - success, {len(text)} chars")
         return TranscriptionResponse(
             text=text,
             duration=result.get("duration"),
@@ -120,7 +130,7 @@ async def transcribe_audio(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Transcription error: {e}")
+        logger.error(f"[Router] /transcribe - FAILED: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Azure OpenAI API error: {str(e)}",
