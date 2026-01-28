@@ -91,6 +91,10 @@ struct GPTAnalysisResponse: Codable {
     let feedback: String
     let keyStrengths: [String]
     let areasToImprove: [String]
+    let toneStrength: String?
+    let toneImprovement: String?
+    let pacingStrength: String?
+    let pacingImprovement: String?
 
     var averageToneScore: Int {
         return (toneScore + confidenceScore + clarityScore) / 3

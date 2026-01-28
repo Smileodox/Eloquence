@@ -512,9 +512,10 @@ struct AnalyzingView: View {
             postureScore: gestureMetrics.postureScore,
             eyeContactScore: gestureMetrics.eyeContactScore,
             keyFrames: gestureMetrics.keyFrames,
-            confidenceScore: analysis.confidenceScore,
-            enthusiasmScore: analysis.enthusiasmScore,
-            clarityScore: analysis.clarityScore
+            toneStrength: analysis.toneStrength,
+            toneImprovement: analysis.toneImprovement,
+            pacingStrength: analysis.pacingStrength,
+            pacingImprovement: analysis.pacingImprovement
         )
     }
     

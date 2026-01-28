@@ -24,6 +24,17 @@ struct DashboardView: View {
             return dueDate1 < dueDate2
         }
     }
+
+    private var motivationalMessage: String {
+        let improvement = userSession.lastImprovement
+        if improvement > 0 {
+            return "Keep up the great work! You're on a roll."
+        } else if improvement == 0 {
+            return "Consistency is key. Keep practicing!"
+        } else {
+            return "Don't worry, every session helps you improve."
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -49,54 +60,137 @@ struct DashboardView: View {
                         .padding(.top, 20)
                         
                         // Progress widget
-                        VStack(spacing: Theme.spacing) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Last Session")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundStyle(Color.textMuted)
-                                    
-                                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                        Text(userSession.lastImprovement > 0 ? "+\(userSession.lastImprovement)%" : "\(userSession.lastImprovement)%")
-                                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                                            .foregroundStyle(userSession.lastImprovement > 0 ? Color.success : Color.danger)
-                                        
-                                        Text("improvement")
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(Color.textMuted)
+                        Group {
+                            switch userSession.sessions.count {
+                            case 0:
+                                // Empty state - no sessions yet
+                                NavigationLink(destination: RecordingSetupView()) {
+                                    VStack(spacing: Theme.spacing) {
+                                        HStack {
+                                            Text("Your Progress")
+                                                .font(.system(size: 18, weight: .bold))
+                                                .foregroundStyle(Color.textPrimary)
+                                            Spacer()
+                                        }
+
+                                        VStack(spacing: 12) {
+                                            Image(systemName: "target")
+                                                .font(.system(size: 40))
+                                                .foregroundStyle(Color.primary)
+
+                                            Text("Start your first session to track your improvement!")
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundStyle(Color.textMuted)
+                                                .multilineTextAlignment(.center)
+                                        }
+                                        .padding(.vertical, Theme.spacing)
                                     }
+                                    .padding(Theme.largeSpacing)
+                                    .background(Color.bgLight)
+                                    .cornerRadius(Theme.cornerRadius)
+                                    .padding(.horizontal, Theme.largeSpacing)
                                 }
-                                
-                                Spacer()
-                                
-                                ZStack {
-                                    Circle()
-                                        .stroke(Color.border, lineWidth: 8)
-                                        .frame(width: 70, height: 70)
-                                    
-                                    Circle()
-                                        .trim(from: 0, to: CGFloat(userSession.averageScore) / 100)
-                                        .stroke(Color.success, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                                        .frame(width: 70, height: 70)
-                                        .rotationEffect(.degrees(-90))
-                                    
-                                    Text("\(userSession.averageScore)")
-                                        .font(.system(size: 20, weight: .bold))
-                                        .foregroundStyle(Color.textPrimary)
+                                .buttonStyle(PlainButtonStyle())
+
+                            case 1:
+                                // First session - no comparison possible
+                                VStack(spacing: Theme.spacing) {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text("First Session")
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundStyle(Color.textMuted)
+
+                                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                                Text("\(userSession.averageScore)")
+                                                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                                                    .foregroundStyle(Color.success)
+
+                                                Text("score")
+                                                    .font(.system(size: 14, weight: .medium))
+                                                    .foregroundStyle(Color.textMuted)
+                                            }
+                                        }
+
+                                        Spacer()
+
+                                        ZStack {
+                                            Circle()
+                                                .stroke(Color.border, lineWidth: 8)
+                                                .frame(width: 70, height: 70)
+
+                                            Circle()
+                                                .trim(from: 0, to: CGFloat(userSession.averageScore) / 100)
+                                                .stroke(Color.success, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                                                .frame(width: 70, height: 70)
+                                                .rotationEffect(.degrees(-90))
+
+                                            Text("\(userSession.averageScore)")
+                                                .font(.system(size: 20, weight: .bold))
+                                                .foregroundStyle(Color.textPrimary)
+                                        }
+                                    }
+
+                                    Text("Great start! Record another session to track your progress.")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(Color.textMuted)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                            }
-                            
-                            if !userSession.sessions.isEmpty {
-                                Text("Keep up the great work! You're on a roll.")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(Color.textMuted)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(Theme.largeSpacing)
+                                .background(Color.bgLight)
+                                .cornerRadius(Theme.cornerRadius)
+                                .padding(.horizontal, Theme.largeSpacing)
+
+                            default:
+                                // 2+ sessions - show improvement comparison
+                                VStack(spacing: Theme.spacing) {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text("Last Session")
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundStyle(Color.textMuted)
+
+                                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                                Text(userSession.lastImprovement > 0 ? "+\(userSession.lastImprovement)%" : "\(userSession.lastImprovement)%")
+                                                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                                                    .foregroundStyle(userSession.lastImprovement > 0 ? Color.success : (userSession.lastImprovement == 0 ? Color.textMuted : Color.danger))
+
+                                                Text("improvement")
+                                                    .font(.system(size: 14, weight: .medium))
+                                                    .foregroundStyle(Color.textMuted)
+                                            }
+                                        }
+
+                                        Spacer()
+
+                                        ZStack {
+                                            Circle()
+                                                .stroke(Color.border, lineWidth: 8)
+                                                .frame(width: 70, height: 70)
+
+                                            Circle()
+                                                .trim(from: 0, to: CGFloat(userSession.averageScore) / 100)
+                                                .stroke(Color.success, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                                                .frame(width: 70, height: 70)
+                                                .rotationEffect(.degrees(-90))
+
+                                            Text("\(userSession.averageScore)")
+                                                .font(.system(size: 20, weight: .bold))
+                                                .foregroundStyle(Color.textPrimary)
+                                        }
+                                    }
+
+                                    Text(motivationalMessage)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(Color.textMuted)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(Theme.largeSpacing)
+                                .background(Color.bgLight)
+                                .cornerRadius(Theme.cornerRadius)
+                                .padding(.horizontal, Theme.largeSpacing)
                             }
                         }
-                        .padding(Theme.largeSpacing)
-                        .background(Color.bgLight)
-                        .cornerRadius(Theme.cornerRadius)
-                        .padding(.horizontal, Theme.largeSpacing)
                         
                         // Main action buttons
                         VStack(spacing: Theme.spacing) {
