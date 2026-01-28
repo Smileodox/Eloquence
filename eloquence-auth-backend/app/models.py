@@ -68,6 +68,10 @@ class SpeechAnalysisResponse(BaseModel):
     feedback: str
     keyStrengths: list[str]
     areasToImprove: list[str]
+    toneStrength: Optional[str] = None
+    toneImprovement: Optional[str] = None
+    pacingStrength: Optional[str] = None
+    pacingImprovement: Optional[str] = None
 
 
 class GestureAnalysisRequest(BaseModel):

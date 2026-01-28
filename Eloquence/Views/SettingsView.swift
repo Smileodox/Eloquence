@@ -76,6 +76,25 @@ struct SettingsView: View {
                         }
                         .background(Color.bgLight)
                         .cornerRadius(Theme.cornerRadius)
+
+                        // Data Processing Info
+                        NavigationLink(destination: DataProcessingView()) {
+                            HStack {
+                                Image(systemName: "globe.europe.africa")
+                                    .foregroundStyle(Color.primary)
+                                    .frame(width: 28)
+                                Text("Data Processing")
+                                    .font(.system(size: 16, weight: .medium))
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Color.textMuted)
+                            }
+                            .padding()
+                            .background(Color.bgLight)
+                            .cornerRadius(Theme.cornerRadius)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, Theme.largeSpacing)
 

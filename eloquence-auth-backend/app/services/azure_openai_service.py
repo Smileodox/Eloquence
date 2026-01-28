@@ -147,7 +147,11 @@ Respond ONLY with valid JSON matching this exact structure (no additional text):
   "clarityScore": <number 0-100>,
   "feedback": "<detailed, personalized coaching feedback>",
   "keyStrengths": ["<specific strength with example>", "<specific strength with example>"],
-  "areasToImprove": ["<specific area with actionable advice>", "<specific area with actionable advice>"]
+  "areasToImprove": ["<specific area with actionable advice>", "<specific area with actionable advice>"],
+  "toneStrength": "<specific strength about vocal tone with example from the speech>",
+  "toneImprovement": "<specific actionable improvement for vocal tone>",
+  "pacingStrength": "<specific strength about pacing/rhythm, reference the WPM if relevant>",
+  "pacingImprovement": "<specific actionable improvement for pacing>"
 }"""
 
         user_prompt = f"""Please analyze this presentation:

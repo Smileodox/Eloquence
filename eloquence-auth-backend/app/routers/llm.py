@@ -168,6 +168,10 @@ async def analyze_speech(
             feedback=result["feedback"],
             keyStrengths=result["keyStrengths"],
             areasToImprove=result["areasToImprove"],
+            toneStrength=result.get("toneStrength"),
+            toneImprovement=result.get("toneImprovement"),
+            pacingStrength=result.get("pacingStrength"),
+            pacingImprovement=result.get("pacingImprovement"),
         )
 
     except HTTPException:

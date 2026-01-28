@@ -11,205 +11,62 @@ import Charts
 struct ProgressView: View {
     @EnvironmentObject var userSession: UserSession
     let initialProject: Project?
-    
+
     @State private var selectedProject: Project?
     @State private var showProjectPicker = false
     @State private var showDeleteProjectAlert = false
     @State private var showEditProjectSheet = false
     @State private var editingProject: Project?
-    
+
     init(initialProject: Project? = nil) {
         self.initialProject = initialProject
     }
-    
+
     private var filteredSessions: [PracticeSession] {
         if let project = selectedProject {
             return userSession.sessions.filter { $0.projectId == project.id }
         }
         return userSession.sessions
     }
-    
+
     var body: some View {
         ZStack {
             Color.bg.ignoresSafeArea()
-            
+
             ScrollView {
                 VStack(spacing: Theme.largeSpacing) {
-                    // Project Filter
-                    VStack(alignment: .leading, spacing: Theme.spacing) {
-                        Text("Project")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.textPrimary)
-                        
-                        Button(action: {
-                            showProjectPicker = true
-                        }) {
-                            HStack {
-                                Image(systemName: "folder.fill")
-                                    .font(.system(size: 18))
-                                    .foregroundStyle(Color.primary)
-                                
-                                Text(selectedProject?.name ?? "All Projects")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(Color.textPrimary)
-                                
-                                Spacer()
-                                
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Color.textMuted)
-                            }
-                            .padding(Theme.spacing)
-                            .background(Color.bgLight)
-                            .cornerRadius(Theme.cornerRadius)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Theme.cornerRadius)
-                                    .stroke(Color.border, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        // Due Date Info
-                        if let project = selectedProject, let dueDate = project.dueDate {
-                            HStack(spacing: 8) {
-                                Image(systemName: "calendar")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Color.warning)
-                                
-                                Text("Due: \(formatDate(dueDate))")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(Color.textMuted)
-                            }
-                            .padding(.horizontal, Theme.spacing)
-                            .padding(.vertical, 8)
-                            .background(Color.warning.opacity(0.1))
-                            .cornerRadius(Theme.smallCornerRadius)
-                        }
-                    }
+                    // 1. Practice Streak Banner
+                    StreakBannerView(
+                        streakCount: userSession.currentStreak,
+                        longestStreak: userSession.longestStreak
+                    )
                     .padding(.horizontal, Theme.largeSpacing)
                     .padding(.top, Theme.spacing)
-                    
-                    // Stats cards
-                    HStack(spacing: Theme.spacing) {
-                        StatCard(
-                            title: "Total Sessions",
-                            value: "\(filteredSessions.count)",
-                            icon: "mic.circle.fill",
-                            color: Color.primary
-                        )
-                        
-                        StatCard(
-                            title: "Improvement",
-                            value: improvementPercentage > 0 ? "+\(improvementPercentage)%" : "\(improvementPercentage)%",
-                            icon: "chart.line.uptrend.xyaxis",
-                            color: improvementPercentage > 0 ? Color.success : Color.danger
-                        )
-                    }
-                    .padding(.horizontal, Theme.largeSpacing)
-                    
-                    // Performance chart
+
+                    // 2. Overall Performance Hero
+                    overallScoreHeroSection
+
+                    // 3. Project Filter
+                    projectFilterSection
+
+                    // 4. Overall Performance Chart (Single Line)
                     if !filteredSessions.isEmpty {
-                        chartSection
+                        overallChartSection
                     } else {
                         emptyChartView
                     }
-                    
-                    // Key metrics (only shown when project is selected)
-                    if selectedProject != nil && !filteredSessions.isEmpty {
-                        keyMetricsSection
-                    }
-                    
+
+                    // 5. Metric Deep-Dive Cards (NavigationLinks)
+                    metricCardsSection
+
                     // Recordings button (only shown when project is selected)
                     if selectedProject != nil {
-                        NavigationLink(destination: RecordingsListView(filterProject: selectedProject)) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Image(systemName: "video.fill")
-                                        .font(.system(size: 28))
-                                        .foregroundStyle(Color.primary)
-                                    
-                                    Spacer()
-                                }
-                                
-                                Text("Recordings")
-                                    .font(.system(size: 20, weight: .bold))
-                                    .foregroundStyle(Color.textPrimary)
-                                
-                                Text("View and manage your practice videos")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(Color.textMuted)
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(Color.textMuted)
-                        }
-                        .padding(Theme.largeSpacing)
-                        .background(Color.bgLight)
-                        .cornerRadius(Theme.cornerRadius)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.cornerRadius)
-                                .stroke(Color.border, lineWidth: 1)
-                        )
+                        recordingsButton
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .padding(.horizontal, Theme.largeSpacing)
-                    .padding(.bottom, Theme.largeSpacing)
-                    }
-                    
+
                     // Project Actions (only if project is selected)
                     if let project = selectedProject {
-                        HStack(spacing: Theme.spacing) {
-                            // Edit Button
-                            Button(action: {
-                                editingProject = project
-                                showEditProjectSheet = true
-                            }) {
-                                HStack {
-                                    Image(systemName: "pencil")
-                                        .font(.system(size: 18))
-                                    
-                                    Text("Edit")
-                                        .font(.system(size: 16, weight: .semibold))
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: Theme.buttonHeight)
-                                .foregroundStyle(Color.primary)
-                                .background(Color.bgLight)
-                                .cornerRadius(Theme.cornerRadius)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: Theme.cornerRadius)
-                                        .stroke(Color.primary, lineWidth: 2)
-                                )
-                            }
-                            
-                            // Delete Button
-                            Button(action: {
-                                showDeleteProjectAlert = true
-                            }) {
-                                HStack {
-                                    Image(systemName: "trash.fill")
-                                        .font(.system(size: 18))
-                                    
-                                    Text("Delete")
-                                        .font(.system(size: 16, weight: .semibold))
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: Theme.buttonHeight)
-                                .foregroundStyle(Color.danger)
-                                .background(Color.bgLight)
-                                .cornerRadius(Theme.cornerRadius)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: Theme.cornerRadius)
-                                        .stroke(Color.danger, lineWidth: 2)
-                                )
-                            }
-                        }
-                        .padding(.horizontal, Theme.largeSpacing)
-                        .padding(.bottom, Theme.largeSpacing)
+                        projectActionsSection(project: project)
                     }
                 }
             }
@@ -233,7 +90,7 @@ struct ProgressView: View {
             Button("All Projects") {
                 selectedProject = nil
             }
-            
+
             ForEach(userSession.projects) { project in
                 Button(project.name) {
                     selectedProject = project
@@ -269,85 +126,186 @@ struct ProgressView: View {
             }
         }
     }
-    
-    private var emptyChartView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 40))
-                .foregroundStyle(Color.textMuted)
-            
-            Text(selectedProject == nil ? "No sessions yet" : "No sessions for this project")
+
+    // MARK: - Overall Score Hero Section
+
+    private var overallScoreHeroSection: some View {
+        VStack(spacing: Theme.spacing) {
+            Text("Overall Performance")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.textMuted)
-            
-            Text(selectedProject == nil ? "Start practicing to see your progress" : "Record videos for this project to see progress")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.textMuted)
-                .multilineTextAlignment(.center)
+
+            ZStack {
+                // Background circle
+                Circle()
+                    .stroke(Color.border, lineWidth: 14)
+                    .frame(width: 150, height: 150)
+
+                // Progress circle
+                Circle()
+                    .trim(from: 0, to: CGFloat(overallScore) / 100)
+                    .stroke(
+                        LinearGradient(
+                            colors: [.primary, .secondary],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        style: StrokeStyle(lineWidth: 14, lineCap: .round)
+                    )
+                    .frame(width: 150, height: 150)
+                    .rotationEffect(.degrees(-90))
+
+                VStack(spacing: 4) {
+                    Text("\(overallScore)")
+                        .font(.system(size: 52, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.textPrimary)
+
+                    Text("out of 100")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.textMuted)
+                }
+            }
+
+            // Trend indicator
+            if filteredSessions.count >= 2 {
+                let change = userSession.scoreChange(for: filteredSessions)
+                HStack(spacing: 4) {
+                    Image(systemName: change >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 12, weight: .bold))
+                    Text("\(change >= 0 ? "+" : "")\(change) vs last session")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(change >= 0 ? Color.success : Color.danger)
+            }
+
+            // Last practiced
+            if let lastDate = lastPracticeDateFormatted {
+                Text("Last practiced: \(lastDate)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 200)
         .padding(Theme.largeSpacing)
         .background(Color.bgLight)
         .cornerRadius(Theme.cornerRadius)
         .padding(.horizontal, Theme.largeSpacing)
     }
-    
-    private var chartSection: some View {
+
+    private var overallScore: Int {
+        userSession.overallAverageScore(for: filteredSessions)
+    }
+
+    private var lastPracticeDateFormatted: String? {
+        guard let lastDate = filteredSessions.map({ $0.date }).max() else { return nil }
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: lastDate), to: calendar.startOfDay(for: Date())).day ?? 0
+
+        if days == 0 { return "today" }
+        else if days == 1 { return "yesterday" }
+        else { return "\(days) days ago" }
+    }
+
+    // MARK: - Project Filter Section
+
+    private var projectFilterSection: some View {
+        VStack(alignment: .leading, spacing: Theme.spacing) {
+            Text("Project")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.textPrimary)
+
+            Button(action: {
+                showProjectPicker = true
+            }) {
+                HStack {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(Color.primary)
+
+                    Text(selectedProject?.name ?? "All Projects")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.textPrimary)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.textMuted)
+                }
+                .padding(Theme.spacing)
+                .background(Color.bgLight)
+                .cornerRadius(Theme.cornerRadius)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.cornerRadius)
+                        .stroke(Color.border, lineWidth: 1)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Due Date Info
+            if let project = selectedProject, let dueDate = project.dueDate {
+                HStack(spacing: 8) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.warning)
+
+                    Text("Due: \(formatDate(dueDate))")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.textMuted)
+                }
+                .padding(.horizontal, Theme.spacing)
+                .padding(.vertical, 8)
+                .background(Color.warning.opacity(0.1))
+                .cornerRadius(Theme.smallCornerRadius)
+            }
+        }
+        .padding(.horizontal, Theme.largeSpacing)
+    }
+
+    // MARK: - Overall Chart Section (Single Line)
+
+    private var overallChartSection: some View {
         VStack(alignment: .leading, spacing: Theme.spacing) {
             Text("Performance Over Time")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color.textPrimary)
-            
-            let sessions = filteredSessions
-            
+
+            let sessions = filteredSessions.sorted { $0.date < $1.date }
+
             Chart {
                 ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
                     LineMark(
                         x: .value("Session", index + 1),
-                        y: .value("Tone", session.toneScore)
+                        y: .value("Score", session.averageScore)
                     )
-                    .foregroundStyle(Color.blue)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.primary, .secondary],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
                     .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round))
                     .symbol {
                         Circle()
-                            .fill(Color.blue)
-                            .frame(width: 8, height: 8)
+                            .fill(Color.primary)
+                            .frame(width: 10, height: 10)
                     }
-                }
-                .interpolationMethod(.catmullRom)
-                
-                ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                    LineMark(
+
+                    AreaMark(
                         x: .value("Session", index + 1),
-                        y: .value("Pacing", session.pacingScore)
+                        y: .value("Score", session.averageScore)
                     )
-                    .foregroundStyle(Color.green)
-                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .symbol {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 8, height: 8)
-                    }
-                }
-                .interpolationMethod(.catmullRom)
-                
-                ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                    LineMark(
-                        x: .value("Session", index + 1),
-                        y: .value("Gestures", session.gesturesScore)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color.primary.opacity(0.3), Color.primary.opacity(0.05)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                    .foregroundStyle(Color.orange)
-                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .symbol {
-                        Circle()
-                            .fill(Color.orange)
-                            .frame(width: 8, height: 8)
-                    }
                 }
                 .interpolationMethod(.catmullRom)
             }
-            .frame(height: 200)
+            .frame(height: 180)
             .chartYScale(domain: 0...100)
             .chartYAxis {
                 AxisMarks(position: .leading) { value in
@@ -365,69 +323,294 @@ struct ProgressView: View {
                         .foregroundStyle(Color.textMuted)
                 }
             }
-            
-            // Legend
+
+            // Stats row
             HStack(spacing: Theme.largeSpacing) {
-                LegendItem(color: Color.blue, label: "Tone")
-                LegendItem(color: Color.green, label: "Pacing")
-                LegendItem(color: Color.orange, label: "Gestures")
+                statPill(
+                    value: "\(filteredSessions.count)",
+                    label: "Sessions",
+                    icon: "mic.circle.fill"
+                )
+
+                if filteredSessions.count >= 2 {
+                    let improvement = improvementPercentage
+                    statPill(
+                        value: improvement >= 0 ? "+\(improvement)%" : "\(improvement)%",
+                        label: "Overall",
+                        icon: "chart.line.uptrend.xyaxis",
+                        isPositive: improvement >= 0
+                    )
+                }
             }
-            .padding(.top, Theme.spacing)
+            .padding(.top, 8)
         }
         .padding(Theme.largeSpacing)
         .background(Color.bgLight)
         .cornerRadius(Theme.cornerRadius)
         .padding(.horizontal, Theme.largeSpacing)
     }
-    
-    private var keyMetricsSection: some View {
+
+    private func statPill(value: String, label: String, icon: String, isPositive: Bool? = nil) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(
+                    isPositive == nil ? Color.primary :
+                        (isPositive! ? Color.success : Color.danger)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.textPrimary)
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+        }
+    }
+
+    private var emptyChartView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 40))
+                .foregroundStyle(Color.textMuted)
+
+            Text(selectedProject == nil ? "No sessions yet" : "No sessions for this project")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.textMuted)
+
+            Text(selectedProject == nil ? "Start practicing to see your progress" : "Record videos for this project to see progress")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.textMuted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 200)
+        .padding(Theme.largeSpacing)
+        .background(Color.bgLight)
+        .cornerRadius(Theme.cornerRadius)
+        .padding(.horizontal, Theme.largeSpacing)
+    }
+
+    // MARK: - Metric Cards Section
+
+    private var metricCardsSection: some View {
         VStack(alignment: .leading, spacing: Theme.spacing) {
-            Text("Key Metrics")
+            Text("Detailed Metrics")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color.textPrimary)
+                .padding(.horizontal, Theme.largeSpacing)
 
             VStack(spacing: 12) {
-                MetricRow(
-                    title: "Average Tone",
-                    value: averageScore(for: \.toneScore),
-                    color: Color.blue
+                // Tone Card
+                NavigationLink(destination: MetricDetailView(metricType: .tone, sessions: filteredSessions)) {
+                    metricCard(
+                        type: .tone,
+                        score: userSession.averageToneScore(for: filteredSessions),
+                        change: userSession.metricScoreChange(for: filteredSessions, metric: .tone)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Pacing Card
+                NavigationLink(destination: MetricDetailView(metricType: .pacing, sessions: filteredSessions)) {
+                    metricCard(
+                        type: .pacing,
+                        score: userSession.averagePacingScore(for: filteredSessions),
+                        change: userSession.metricScoreChange(for: filteredSessions, metric: .pacing)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Body Language Card
+                NavigationLink(destination: BodyLanguageDetailView(sessions: filteredSessions)) {
+                    metricCard(
+                        type: .bodyLanguage,
+                        score: userSession.averageGesturesScore(for: filteredSessions),
+                        change: userSession.metricScoreChange(for: filteredSessions, metric: .bodyLanguage)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, Theme.largeSpacing)
+        }
+    }
+
+    private func metricCard(type: MetricType, score: Int, change: Int) -> some View {
+        HStack(spacing: Theme.spacing) {
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(type.color.opacity(0.2))
+                    .frame(width: 50, height: 50)
+
+                Image(systemName: type.icon)
+                    .font(.system(size: 24))
+                    .foregroundStyle(type.color)
+            }
+
+            // Content
+            VStack(alignment: .leading, spacing: 6) {
+                Text(type.rawValue)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
+
+                // Progress bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.border)
+                            .frame(height: 8)
+
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(type.color)
+                            .frame(width: geometry.size.width * CGFloat(score) / 100, height: 8)
+                    }
+                }
+                .frame(height: 8)
+
+                // Change indicator
+                if filteredSessions.count >= 2 {
+                    HStack(spacing: 4) {
+                        Image(systemName: change >= 0 ? "arrow.up" : "arrow.down")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("\(change >= 0 ? "+" : "")\(change) vs last")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundStyle(change >= 0 ? Color.success : Color.danger)
+                }
+            }
+
+            Spacer()
+
+            // Score
+            Text("\(score)")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.textPrimary)
+
+            // Chevron
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.textMuted)
+        }
+        .padding(Theme.spacing)
+        .background(Color.bgLight)
+        .cornerRadius(Theme.cornerRadius)
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cornerRadius)
+                .stroke(Color.border, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Recordings Button
+
+    private var recordingsButton: some View {
+        NavigationLink(destination: RecordingsListView(filterProject: selectedProject)) {
+            HStack {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(Color.primary)
+
+                        Spacer()
+                    }
+
+                    Text("Recordings")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(Color.textPrimary)
+
+                    Text("View and manage your practice videos")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.textMuted)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .padding(Theme.largeSpacing)
+            .background(Color.bgLight)
+            .cornerRadius(Theme.cornerRadius)
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cornerRadius)
+                    .stroke(Color.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .padding(.horizontal, Theme.largeSpacing)
+        .padding(.bottom, Theme.largeSpacing)
+    }
+
+    // MARK: - Project Actions
+
+    private func projectActionsSection(project: Project) -> some View {
+        HStack(spacing: Theme.spacing) {
+            // Edit Button
+            Button(action: {
+                editingProject = project
+                showEditProjectSheet = true
+            }) {
+                HStack {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 18))
+
+                    Text("Edit")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: Theme.buttonHeight)
+                .foregroundStyle(Color.primary)
+                .background(Color.bgLight)
+                .cornerRadius(Theme.cornerRadius)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.cornerRadius)
+                        .stroke(Color.primary, lineWidth: 2)
                 )
-                
-                MetricRow(
-                    title: "Average Pacing",
-                    value: averageScore(for: \.pacingScore),
-                    color: Color.green
-                )
-                
-                MetricRow(
-                    title: "Average Gestures",
-                    value: averageScore(for: \.gesturesScore),
-                    color: Color.orange
+            }
+
+            // Delete Button
+            Button(action: {
+                showDeleteProjectAlert = true
+            }) {
+                HStack {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 18))
+
+                    Text("Delete")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: Theme.buttonHeight)
+                .foregroundStyle(Color.danger)
+                .background(Color.bgLight)
+                .cornerRadius(Theme.cornerRadius)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.cornerRadius)
+                        .stroke(Color.danger, lineWidth: 2)
                 )
             }
         }
-        .padding(Theme.largeSpacing)
-        .background(Color.bgLight)
-        .cornerRadius(Theme.cornerRadius)
         .padding(.horizontal, Theme.largeSpacing)
+        .padding(.bottom, Theme.largeSpacing)
     }
-    
-    private func averageScore(for keyPath: KeyPath<PracticeSession, Int>) -> Int {
-        guard !filteredSessions.isEmpty else { return 0 }
-        let total = filteredSessions.reduce(0) { $0 + $1[keyPath: keyPath] }
-        return total / filteredSessions.count
-    }
-    
+
+    // MARK: - Helper Methods
+
     private var improvementPercentage: Int {
         guard filteredSessions.count >= 2 else { return 0 }
-        let first = filteredSessions.first!
-        let last = filteredSessions.last!
-        let firstAvg = (first.toneScore + first.pacingScore + first.gesturesScore) / 3
-        let lastAvg = (last.toneScore + last.pacingScore + last.gesturesScore) / 3
+        let sortedSessions = filteredSessions.sorted { $0.date < $1.date }
+        let first = sortedSessions.first!
+        let last = sortedSessions.last!
+        let firstAvg = first.averageScore
+        let lastAvg = last.averageScore
         let improvement = ((lastAvg - firstAvg) * 100) / max(firstAvg, 1)
         return improvement
     }
-    
+
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -436,27 +619,29 @@ struct ProgressView: View {
     }
 }
 
+// MARK: - Supporting Views
+
 struct StatCard: View {
     let title: String
     let value: String
     let icon: String
     let color: Color
-    
+
     var body: some View {
         VStack(spacing: 12) {
             HStack {
                 Image(systemName: icon)
                     .font(.system(size: 24))
                     .foregroundStyle(color)
-                
+
                 Spacer()
             }
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(value)
                     .font(.system(size: 32, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.textPrimary)
-                
+
                 Text(title)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color.textMuted)
@@ -472,13 +657,13 @@ struct StatCard: View {
 struct LegendItem: View {
     let color: Color
     let label: String
-    
+
     var body: some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(color)
                 .frame(width: 12, height: 12)
-            
+
             Text(label)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.textMuted)
@@ -490,15 +675,15 @@ struct MetricRow: View {
     let title: String
     let value: Int
     let color: Color
-    
+
     var body: some View {
         HStack {
             Text(title)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color.textMuted)
-            
+
             Spacer()
-            
+
             HStack(spacing: 12) {
                 // Progress bar
                 GeometryReader { geometry in
@@ -506,14 +691,14 @@ struct MetricRow: View {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(Color.border)
                             .frame(height: 6)
-                        
+
                         RoundedRectangle(cornerRadius: 3)
                             .fill(color)
                             .frame(width: geometry.size.width * CGFloat(value) / 100, height: 6)
                     }
                 }
                 .frame(width: 80, height: 6)
-                
+
                 Text("\(value)")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.textPrimary)

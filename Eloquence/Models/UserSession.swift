@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import SwiftUI
 
 class UserSession: ObservableObject {
     @Published var isLoggedIn: Bool = false
@@ -288,7 +289,7 @@ class UserSession: ObservableObject {
         let total = sessions.reduce(0) { $0 + ($1.toneScore + $1.pacingScore + $1.gesturesScore) / 3 }
         return total / sessions.count
     }
-    
+
     var improvementPercentage: Int {
         guard sessions.count >= 2 else { return 0 }
         let first = sessions.first!
@@ -297,6 +298,157 @@ class UserSession: ObservableObject {
         let lastAvg = (last.toneScore + last.pacingScore + last.gesturesScore) / 3
         let improvement = ((lastAvg - firstAvg) * 100) / max(firstAvg, 1)
         return improvement
+    }
+
+    // MARK: - Streak Tracking
+
+    var currentStreak: Int {
+        guard !sessions.isEmpty else { return 0 }
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        // Get unique practice days sorted by date (most recent first)
+        let practiceDays = Set(sessions.map { calendar.startOfDay(for: $0.date) })
+            .sorted(by: >)
+
+        guard let mostRecentDay = practiceDays.first else { return 0 }
+
+        // Check if the most recent practice was today or yesterday
+        let daysSincePractice = calendar.dateComponents([.day], from: mostRecentDay, to: today).day ?? 0
+        if daysSincePractice > 1 { return 0 } // Streak broken
+
+        var streak = 1
+        var previousDay = mostRecentDay
+
+        for day in practiceDays.dropFirst() {
+            let daysBetween = calendar.dateComponents([.day], from: day, to: previousDay).day ?? 0
+            if daysBetween == 1 {
+                streak += 1
+                previousDay = day
+            } else if daysBetween > 1 {
+                break
+            }
+        }
+
+        return streak
+    }
+
+    var longestStreak: Int {
+        guard !sessions.isEmpty else { return 0 }
+
+        let calendar = Calendar.current
+        let practiceDays = Set(sessions.map { calendar.startOfDay(for: $0.date) })
+            .sorted()
+
+        guard !practiceDays.isEmpty else { return 0 }
+
+        var maxStreak = 1
+        var currentRun = 1
+        var previousDay = practiceDays[0]
+
+        for day in practiceDays.dropFirst() {
+            let daysBetween = calendar.dateComponents([.day], from: previousDay, to: day).day ?? 0
+            if daysBetween == 1 {
+                currentRun += 1
+                maxStreak = max(maxStreak, currentRun)
+            } else if daysBetween > 1 {
+                currentRun = 1
+            }
+            previousDay = day
+        }
+
+        return maxStreak
+    }
+
+    var lastPracticeDate: Date? {
+        sessions.map { $0.date }.max()
+    }
+
+    // MARK: - Filtered Average Scores
+
+    func averageToneScore(for sessions: [PracticeSession]) -> Int {
+        guard !sessions.isEmpty else { return 0 }
+        return sessions.reduce(0) { $0 + $1.toneScore } / sessions.count
+    }
+
+    func averagePacingScore(for sessions: [PracticeSession]) -> Int {
+        guard !sessions.isEmpty else { return 0 }
+        return sessions.reduce(0) { $0 + $1.pacingScore } / sessions.count
+    }
+
+    func averageGesturesScore(for sessions: [PracticeSession]) -> Int {
+        guard !sessions.isEmpty else { return 0 }
+        return sessions.reduce(0) { $0 + $1.gesturesScore } / sessions.count
+    }
+
+    func averageFacialScore(for sessions: [PracticeSession]) -> Int? {
+        let sessionsWithFacial = sessions.compactMap { $0.facialScore }
+        guard !sessionsWithFacial.isEmpty else { return nil }
+        return sessionsWithFacial.reduce(0, +) / sessionsWithFacial.count
+    }
+
+    func averagePostureScore(for sessions: [PracticeSession]) -> Int? {
+        let sessionsWithPosture = sessions.compactMap { $0.postureScore }
+        guard !sessionsWithPosture.isEmpty else { return nil }
+        return sessionsWithPosture.reduce(0, +) / sessionsWithPosture.count
+    }
+
+    func averageEyeContactScore(for sessions: [PracticeSession]) -> Int? {
+        let sessionsWithEyeContact = sessions.compactMap { $0.eyeContactScore }
+        guard !sessionsWithEyeContact.isEmpty else { return nil }
+        return sessionsWithEyeContact.reduce(0, +) / sessionsWithEyeContact.count
+    }
+
+    func overallAverageScore(for sessions: [PracticeSession]) -> Int {
+        guard !sessions.isEmpty else { return 0 }
+        return sessions.reduce(0) { $0 + $1.averageScore } / sessions.count
+    }
+
+    func scoreChange(for sessions: [PracticeSession]) -> Int {
+        guard sessions.count >= 2 else { return 0 }
+        let sortedSessions = sessions.sorted { $0.date < $1.date }
+        let lastScore = sortedSessions.last!.averageScore
+        let previousScore = sortedSessions[sortedSessions.count - 2].averageScore
+        return lastScore - previousScore
+    }
+
+    func metricScoreChange(for sessions: [PracticeSession], metric: MetricType) -> Int {
+        guard sessions.count >= 2 else { return 0 }
+        let sortedSessions = sessions.sorted { $0.date < $1.date }
+        let lastSession = sortedSessions.last!
+        let previousSession = sortedSessions[sortedSessions.count - 2]
+
+        switch metric {
+        case .tone:
+            return lastSession.toneScore - previousSession.toneScore
+        case .pacing:
+            return lastSession.pacingScore - previousSession.pacingScore
+        case .bodyLanguage:
+            return lastSession.gesturesScore - previousSession.gesturesScore
+        }
+    }
+}
+
+enum MetricType: String, CaseIterable {
+    case tone = "Tone"
+    case pacing = "Pacing"
+    case bodyLanguage = "Body Language"
+
+    var icon: String {
+        switch self {
+        case .tone: return "waveform"
+        case .pacing: return "speedometer"
+        case .bodyLanguage: return "figure.wave"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .tone: return .primary
+        case .pacing: return .secondary
+        case .bodyLanguage: return .info
+        }
     }
 }
 
@@ -352,11 +504,17 @@ struct PracticeSession: Identifiable, Codable {
     var eyeContactScore: Int?
     var keyFrames: [KeyFrame]?
 
+    // Tone & Pacing AI feedback
+    var toneStrength: String?
+    var toneImprovement: String?
+    var pacingStrength: String?
+    var pacingImprovement: String?
+
     var averageScore: Int {
         (toneScore + pacingScore + gesturesScore) / 3
     }
 
-    init(id: UUID = UUID(), date: Date = Date(), toneScore: Int, pacingScore: Int, gesturesScore: Int, feedback: String = "", recordingType: String? = nil, projectId: UUID? = nil, gestureStrength: String? = nil, gestureImprovement: String? = nil, facialScore: Int? = nil, postureScore: Int? = nil, eyeContactScore: Int? = nil, keyFrames: [KeyFrame]? = nil) {
+    init(id: UUID = UUID(), date: Date = Date(), toneScore: Int, pacingScore: Int, gesturesScore: Int, feedback: String = "", recordingType: String? = nil, projectId: UUID? = nil, gestureStrength: String? = nil, gestureImprovement: String? = nil, facialScore: Int? = nil, postureScore: Int? = nil, eyeContactScore: Int? = nil, keyFrames: [KeyFrame]? = nil, toneStrength: String? = nil, toneImprovement: String? = nil, pacingStrength: String? = nil, pacingImprovement: String? = nil) {
         self.id = id
         self.date = date
         self.toneScore = toneScore
@@ -371,6 +529,10 @@ struct PracticeSession: Identifiable, Codable {
         self.postureScore = postureScore
         self.eyeContactScore = eyeContactScore
         self.keyFrames = keyFrames
+        self.toneStrength = toneStrength
+        self.toneImprovement = toneImprovement
+        self.pacingStrength = pacingStrength
+        self.pacingImprovement = pacingImprovement
     }
 }
 
