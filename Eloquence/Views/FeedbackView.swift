@@ -146,8 +146,20 @@ struct FeedbackView: View {
                 .foregroundStyle(Color.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            ScoreCard(title: "Tone", score: session.toneScore, icon: "waveform", color: .primary)
-            ScoreCard(title: "Pacing", score: session.pacingScore, icon: "speedometer", color: .secondary)
+            ScoreCard(
+                title: "Tone",
+                score: session.toneScore,
+                icon: "waveform",
+                color: .primary,
+                explanation: "Analyzes voice quality, emphasis, and emotional expression. Evaluates confidence, enthusiasm, and clarity in your delivery."
+            )
+            ScoreCard(
+                title: "Pacing",
+                score: session.pacingScore,
+                icon: "speedometer",
+                color: .secondary,
+                explanation: "Measures speaking speed (words per minute). Ideal range: 130-150 WPM for clear understanding. Evaluates pauses and rhythm."
+            )
             gestureScoreSection
         }
         .padding(Theme.largeSpacing)
@@ -158,7 +170,13 @@ struct FeedbackView: View {
 
     private var gestureScoreSection: some View {
         VStack(alignment: .leading, spacing: Theme.spacing) {
-            ScoreCard(title: "Gestures", score: session.gesturesScore, icon: "figure.wave", color: .info)
+            ScoreCard(
+                title: "Gestures",
+                score: session.gesturesScore,
+                icon: "figure.wave",
+                color: .info,
+                explanation: "Analyzes facial expressions, posture, and eye contact. Evaluates engagement and non-verbal communication."
+            )
 
             if session.facialScore != nil || session.postureScore != nil {
                 gestureDetailsDisclosure
@@ -410,6 +428,9 @@ struct ScoreCard: View {
     let score: Int
     let icon: String
     let color: Color
+    var explanation: String? = nil
+
+    @State private var showExplanation = false
 
     var body: some View {
         HStack(spacing: Theme.spacing) {
@@ -426,9 +447,21 @@ struct ScoreCard: View {
 
             // Title and progress
             VStack(alignment: .leading, spacing: 8) {
-                Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.textPrimary)
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.textPrimary)
+
+                    if explanation != nil {
+                        Button {
+                            showExplanation = true
+                        } label: {
+                            Image(systemName: "questionmark.circle")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color.textMuted)
+                        }
+                    }
+                }
 
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
@@ -450,6 +483,71 @@ struct ScoreCard: View {
                 .foregroundStyle(Color.textPrimary)
                 .frame(width: 50, alignment: .trailing)
         }
+        .sheet(isPresented: $showExplanation) {
+            MetricExplanationSheet(
+                title: title,
+                icon: icon,
+                color: color,
+                explanation: explanation ?? ""
+            )
+            .presentationDetents([.medium])
+        }
+    }
+}
+
+struct MetricExplanationSheet: View {
+    let title: String
+    let icon: String
+    let color: Color
+    let explanation: String
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 24) {
+            // Header with icon
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(color.opacity(0.2))
+                        .frame(width: 60, height: 60)
+
+                    Image(systemName: icon)
+                        .font(.system(size: 28))
+                        .foregroundStyle(color)
+                }
+
+                Text(title)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Color.textPrimary)
+            }
+            .padding(.top, 24)
+
+            // Explanation text
+            Text(explanation)
+                .font(.system(size: 16))
+                .foregroundStyle(Color.textMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            Spacer()
+
+            // Dismiss button
+            Button {
+                dismiss()
+            } label: {
+                Text("Got it")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(color)
+                    .cornerRadius(12)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .background(Color.bgLight)
     }
 }
 
