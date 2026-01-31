@@ -41,7 +41,7 @@ struct DataProcessingView: View {
             region: "Sweden Central",
             country: "Sweden",
             coordinate: CLLocationCoordinate2D(latitude: 59.3293, longitude: 18.0686),
-            description: "Whisper, GPT-4, Vision API",
+            description: "Whisper, GPT-5, Vision API",
             icon: "brain"
         )
     ]
@@ -140,8 +140,8 @@ struct ServerInfoCard: View {
                 DataTypeRow(icon: "figure.stand", text: "Posture analysis (Vision Framework)")
             } else if server.name == "AI Processing" {
                 DataTypeRow(icon: "waveform", text: "Audio → Text (Whisper)")
-                DataTypeRow(icon: "text.bubble", text: "Text → Feedback (GPT-4)")
-                DataTypeRow(icon: "camera", text: "Video frames → Gesture analysis (GPT-4 Vision)")
+                DataTypeRow(icon: "text.bubble", text: "Text → Feedback (GPT-5)")
+                DataTypeRow(icon: "camera", text: "Video frames → Gesture analysis (GPT-5 Vision)")
             } else {
                 DataTypeRow(icon: "key", text: "Login & authentication")
                 DataTypeRow(icon: "arrow.left.arrow.right", text: "API request routing")
