@@ -12,9 +12,8 @@ Eloquence records your presentations and provides detailed feedback on:
 ## Quick Start
 
 1. Clone and open `Eloquence.xcodeproj` in Xcode
-2. Copy `Config.plist.example` to `Config.plist` and add your Azure credentials
-3. Run on iOS 17+ device or simulator
-4. Login with email OTP authentication
+3. Run on iOS 17+ device or simulator (won't look as good if you use a pre "Liquid Glass" iOS; also utilizing the XCode Simulator will give problems in the recording-process, please utilise an iPhone if possible)
+4. Login with email OTP authentication (I whitelisted all teaching personals and Prof. Butzs LMU e-Mail addresses, please use yours respectively for logging in!)
 
 ## Architecture
 
@@ -52,7 +51,7 @@ eloquence-auth-backend/
 
 ## Features
 
-- Video recording with front camera
+- Video recording
 - Real-time audio level monitoring
 - Speech transcription and analysis
 - Gesture analysis (facial expressions, posture, eye contact)
@@ -66,6 +65,8 @@ eloquence-auth-backend/
 
 - Xcode 15+
 - iOS 17+ device or simulator
+
+(Not required anymore as we provide this, just listing it up for clarity)
 - Azure account with:
   - OpenAI resource (Whisper + GPT deployments)
   - Communication Services resource
@@ -75,16 +76,9 @@ eloquence-auth-backend/
 ### iOS Setup
 
 1. Open `Eloquence.xcodeproj`
-2. Create `Config.plist` from example:
-   ```
-   AzureAuthBaseURL: https://your-app.azurewebsites.net
-   ```
+2. Select target device (iPhone needs to pe plugged into Mac)
 3. Build and run
 
 ### Backend Setup
 
 See [eloquence-auth-backend/README.md](eloquence-auth-backend/README.md)
-
-## License
-
-MIT
