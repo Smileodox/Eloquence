@@ -19,6 +19,8 @@ struct ServerLocation: Identifiable {
 }
 
 struct DataProcessingView: View {
+    @EnvironmentObject var userSession: UserSession
+
     let servers = [
         ServerLocation(
             name: "On-Device",
@@ -57,18 +59,60 @@ struct DataProcessingView: View {
 
             ScrollView {
                 VStack(spacing: Theme.largeSpacing) {
-                    // Map with annotations
-                    Map(coordinateRegion: $mapRegion, annotationItems: servers) { server in
-                        MapAnnotation(coordinate: server.coordinate) {
-                            ServerPin(server: server)
-                        }
-                    }
-                    .frame(height: 300)
-                    .cornerRadius(Theme.cornerRadius)
+                    if userSession.enableOfflineMode {
+                        // Offline mode banner
+                        VStack(spacing: 12) {
+                            Image(systemName: "lock.shield.fill")
+                                .font(.system(size: 40))
+                                .foregroundStyle(Color.success)
 
-                    // Info cards for each server
-                    ForEach(servers) { server in
-                        ServerInfoCard(server: server)
+                            Text("Offline Mode Active")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(Color.textPrimary)
+
+                            Text("All processing runs entirely on your device. No data is sent to any external server.")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color.textMuted)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.bgLight)
+                        .cornerRadius(Theme.cornerRadius)
+
+                        // On-device processing details
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "iphone")
+                                    .foregroundStyle(Color.primary)
+                                Text("On-Device Processing")
+                                    .font(.system(size: 16, weight: .semibold))
+                            }
+
+                            DataTypeRow(icon: "waveform", text: "Speech transcription (Apple Speech)")
+                            DataTypeRow(icon: "text.bubble", text: "Speech feedback (Apple Intelligence)")
+                            DataTypeRow(icon: "figure.wave", text: "Gesture feedback (Apple Intelligence)")
+                            DataTypeRow(icon: "eye", text: "Gaze tracking (Vision Framework)")
+                            DataTypeRow(icon: "figure.stand", text: "Posture analysis (Vision Framework)")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(Color.bgLight)
+                        .cornerRadius(Theme.cornerRadius)
+                    } else {
+                        // Map with annotations
+                        Map(coordinateRegion: $mapRegion, annotationItems: servers) { server in
+                            MapAnnotation(coordinate: server.coordinate) {
+                                ServerPin(server: server)
+                            }
+                        }
+                        .frame(height: 300)
+                        .cornerRadius(Theme.cornerRadius)
+
+                        // Info cards for each server
+                        ForEach(servers) { server in
+                            ServerInfoCard(server: server)
+                        }
                     }
 
                     // Privacy info
@@ -184,6 +228,7 @@ struct PrivacyInfoSection: View {
                 .font(.system(size: 14))
                 .foregroundStyle(Color.textMuted)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color.bgLight)
         .cornerRadius(Theme.cornerRadius)
@@ -193,5 +238,6 @@ struct PrivacyInfoSection: View {
 #Preview {
     NavigationStack {
         DataProcessingView()
+            .environmentObject(UserSession())
     }
 }

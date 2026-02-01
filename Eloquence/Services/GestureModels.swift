@@ -18,6 +18,7 @@ struct GestureMetrics {
     let postureScore: Int
     let eyeContactScore: Int?  // Nil if face not detected
     let keyFrames: [KeyFrame]  // Visual highlights from the presentation
+    var insufficientData: Bool = false
 
     // MARK: - Detection Quality Metadata
     /// Overall detection rate across all metrics (facial + posture)

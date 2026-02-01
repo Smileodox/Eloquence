@@ -178,7 +178,18 @@ struct FeedbackView: View {
                 explanation: "Analyzes facial expressions, posture, and eye contact. Evaluates engagement and non-verbal communication."
             )
 
-            if session.facialScore != nil || session.postureScore != nil {
+            if session.gestureDataInsufficient == true {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Color.orange)
+                    Text("Gesture data was insufficient. Ensure you are clearly visible in the frame with good lighting.")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color.textMuted)
+                }
+                .padding(Theme.spacing)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(Theme.cornerRadius)
+            } else if session.facialScore != nil || session.postureScore != nil {
                 gestureDetailsDisclosure
             }
         }

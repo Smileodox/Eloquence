@@ -31,6 +31,7 @@ struct AnalyzingView: View {
     @State private var showErrorAlert = false
     @State private var currentStepMessage = ""
     @State private var navigateToDashboard = false
+    @State private var failedSteps: Set<Int> = []
 
     // Visual feedback animations
     @State private var isPulsing = false
@@ -203,8 +204,9 @@ struct AnalyzingView: View {
     }
     
     private func stepRow(index: Int, step: (String, String)) -> some View {
-        let icon = index < currentStep ? "checkmark.circle.fill" : index == currentStep ? "circle.circle.fill" : "circle"
-        let iconColor = index < currentStep ? Color.success : index == currentStep ? Color.primary : Color.border
+        let isFailed = failedSteps.contains(index)
+        let icon = isFailed ? "xmark.circle.fill" : index < currentStep ? "checkmark.circle.fill" : index == currentStep ? "circle.circle.fill" : "circle"
+        let iconColor = isFailed ? Color.red : index < currentStep ? Color.success : index == currentStep ? Color.primary : Color.border
         let textColor = index <= currentStep ? Color.textPrimary : Color.textMuted
         
         return HStack(spacing: 12) {
@@ -244,93 +246,23 @@ struct AnalyzingView: View {
 
         Task {
             do {
-                // Step 1: Extract audio from video
-                updateStep(0, message: "Extracting audio from video...", progress: 0.2)
-                let audioURL = try await audioService.extractAudio(from: videoURL)
+                let isOffline = userSession.enableOfflineMode
 
-                // Step 2: Transcribe audio with Whisper (with retry logic)
-                updateStep(1, message: "Transcribing speech with AI...", progress: 0.5)
-                let transcription = try await retryHelper.withRetry {
-                    try await azureService.transcribeAudio(audioURL)
-                }
-
-                // Check if transcription is empty (no speech detected)
-                guard !transcription.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw AnalysisError.emptyTranscription
-                }
-
-                // Step 3: Analyze speech metrics locally
-                updateStep(2, message: "Analyzing pace and tone...", progress: 0.55)
-                let audioDuration = try await audioService.getAudioDuration(audioURL)
-                let metrics = azureService.analyzeSpeechMetrics(
-                    transcription: transcription.text,
-                    audioDuration: audioDuration
-                )
-
-                // Step 4: Analyze gestures (facial expressions + body posture)
-                updateStep(3, message: "Analyzing facial expressions and posture...", progress: 0.75)
-                let analysisSettings = AnalysisSettings(
-                    enableEyeContact: userSession.enableEyeContactAnalysis,
-                    enableFacial: userSession.enableFacialAnalysis,
-                    enablePosture: userSession.enablePostureAnalysis
-                )
-                let gestureMetrics = try await gestureService.analyzeVideo(from: videoURL, settings: analysisSettings)
-
-                // Step 5: Generate ALL feedback in parallel (Text + Vision)
-                updateStep(4, message: "Generating personalized feedback...", progress: 0.90)
-
-                // Launch all AI tasks simultaneously
-                async let analysisTask = retryHelper.withRetry {
-                    try await azureService.generateFeedback(
-                        transcription: transcription.text,
-                        metrics: metrics
-                    )
-                }
-
-                async let gestureAnalysisTask = retryHelper.withRetry {
-                    try await azureService.generateGestureFeedback(
-                        gestureMetrics: gestureMetrics,
-                        transcription: transcription.text
-                    )
-                }
-                
-                async let enhancedMetricsTask = enhanceKeyFramesWithAI(
-                    gestureMetrics: gestureMetrics,
-                    transcription: transcription.text
-                )
-
-                // Wait for everything to complete
-                let (speechAnalysis, gestureAnalysisResult, enhancedGestureMetrics) = try await (analysisTask, gestureAnalysisTask, enhancedMetricsTask)
-
-                // Complete
-                updateStep(4, message: "Analysis complete!", progress: 1.0)
-
-                // Create session from real analysis
-                let session = createSessionFromAnalysis(
-                    analysis: speechAnalysis,
-                    metrics: metrics,
-                    gestureMetrics: enhancedGestureMetrics,
-                    gestureAnalysis: gestureAnalysisResult
-                )
-
-                // Clean up temporary audio file
-                audioService.cleanupAudioFile(audioURL)
-
-                // Link session to video file
-                let videoFileName = videoURL.lastPathComponent
-                UserDefaults.standard.set(session.id.uuidString, forKey: "session_id_\(videoFileName)")
-
-                // Navigate to feedback
-                await MainActor.run {
-                    stopActivityDots()
-                    generatedSession = session
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        navigateToFeedback = true
+                if isOffline {
+                    guard #available(iOS 26.0, *) else {
+                        showError("Offline mode requires iOS 26 or later with Apple Intelligence.")
+                        return
                     }
+                    try await runOfflineAnalysis(videoURL: videoURL)
+                    return
                 }
+
+                try await runOnlineAnalysis(videoURL: videoURL)
 
             } catch let error as AnalysisError {
                 showError(error.errorDescription ?? error.localizedDescription)
+            } catch let error as OnDeviceAIError {
+                showError(error.userMessage)
             } catch let error as AzureAPIError {
                 showError(error.userMessage)
             } catch let error as AudioExtractionError {
@@ -339,6 +271,184 @@ struct AnalyzingView: View {
                 showError(error.userMessage)
             } catch {
                 showError("An unexpected error occurred: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // MARK: - Online Analysis (Azure OpenAI)
+
+    private func runOnlineAnalysis(videoURL: URL) async throws {
+        // Step 1: Extract audio from video
+        updateStep(0, message: "Extracting audio from video...", progress: 0.2)
+        let audioURL = try await audioService.extractAudio(from: videoURL)
+
+        // Step 2: Transcribe audio with Whisper
+        updateStep(1, message: "Transcribing speech with AI...", progress: 0.5)
+        let transcription = try await retryHelper.withRetry {
+            try await azureService.transcribeAudio(audioURL)
+        }
+
+        guard !transcription.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AnalysisError.emptyTranscription
+        }
+
+        // Step 3: Analyze speech metrics locally
+        updateStep(2, message: "Analyzing pace and tone...", progress: 0.55)
+        let audioDuration = try await audioService.getAudioDuration(audioURL)
+        let metrics = azureService.analyzeSpeechMetrics(transcription: transcription.text, audioDuration: audioDuration)
+
+        // Step 4: Analyze gestures
+        updateStep(3, message: "Analyzing facial expressions and posture...", progress: 0.75)
+        let analysisSettings = AnalysisSettings(
+            enableEyeContact: userSession.enableEyeContactAnalysis,
+            enableFacial: userSession.enableFacialAnalysis,
+            enablePosture: userSession.enablePostureAnalysis
+        )
+        let gestureMetrics = try await gestureService.analyzeVideo(from: videoURL, settings: analysisSettings)
+
+        // Step 5: Generate ALL feedback in parallel
+        updateStep(4, message: "Generating personalized feedback...", progress: 0.90)
+
+        async let analysisTask = retryHelper.withRetry {
+            try await azureService.generateFeedback(transcription: transcription.text, metrics: metrics)
+        }
+
+        let gestureAnalysisResult: GestureAnalysisResponse
+        let enhancedGestureMetrics: GestureMetrics
+
+        if gestureMetrics.insufficientData {
+            await MainActor.run { failedSteps.insert(3) }
+            gestureAnalysisResult = GestureAnalysisResponse(
+                gestureFeedback: "Gesture analysis was not available for this video. Ensure you are clearly visible in the frame with good lighting.",
+                gestureStrength: "N/A",
+                gestureImprovement: "Ensure your face and body are clearly visible in the video.",
+                isTemplateFallback: true
+            )
+            enhancedGestureMetrics = gestureMetrics
+        } else {
+            async let gestureAnalysisTask: GestureAnalysisResponse = retryHelper.withRetry {
+                try await azureService.generateGestureFeedback(gestureMetrics: gestureMetrics, transcription: transcription.text)
+            }
+            async let enhancedMetricsTask = enhanceKeyFramesWithAI(
+                gestureMetrics: gestureMetrics,
+                transcription: transcription.text
+            )
+            (gestureAnalysisResult, enhancedGestureMetrics) = try await (gestureAnalysisTask, enhancedMetricsTask)
+        }
+
+        let speechAnalysis = try await analysisTask
+
+        // Complete
+        updateStep(4, message: "Analysis complete!", progress: 1.0)
+
+        let session = createSessionFromAnalysis(
+            analysis: speechAnalysis,
+            metrics: metrics,
+            gestureMetrics: enhancedGestureMetrics,
+            gestureAnalysis: gestureAnalysisResult
+        )
+
+        audioService.cleanupAudioFile(audioURL)
+        let videoFileName = videoURL.lastPathComponent
+        UserDefaults.standard.set(session.id.uuidString, forKey: "session_id_\(videoFileName)")
+
+        await MainActor.run {
+            stopActivityDots()
+            generatedSession = session
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                navigateToFeedback = true
+            }
+        }
+    }
+
+    // MARK: - Offline Analysis (On-Device)
+
+    @available(iOS 26.0, *)
+    private func runOfflineAnalysis(videoURL: URL) async throws {
+        let onDeviceService = OnDeviceAIService()
+
+        // Step 1: Extract audio from video
+        updateStep(0, message: "Extracting audio from video...", progress: 0.2)
+        let audioURL = try await audioService.extractAudio(from: videoURL)
+
+        // Step 2: Transcribe audio on-device
+        updateStep(1, message: "Transcribing speech on-device...", progress: 0.5)
+        let transcription = try await onDeviceService.transcribeAudio(audioURL)
+
+        guard !transcription.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AnalysisError.emptyTranscription
+        }
+
+        // Step 3: Analyze speech metrics locally
+        updateStep(2, message: "Analyzing pace and tone...", progress: 0.55)
+        let audioDuration = try await audioService.getAudioDuration(audioURL)
+        let metrics = onDeviceService.analyzeSpeechMetrics(transcription: transcription.text, audioDuration: audioDuration)
+
+        // Step 4: Analyze gestures
+        updateStep(3, message: "Analyzing facial expressions and posture...", progress: 0.75)
+        let analysisSettings = AnalysisSettings(
+            enableEyeContact: userSession.enableEyeContactAnalysis,
+            enableFacial: userSession.enableFacialAnalysis,
+            enablePosture: userSession.enablePostureAnalysis
+        )
+        let gestureMetrics = try await gestureService.analyzeVideo(from: videoURL, settings: analysisSettings)
+
+        // Step 5: Generate feedback on-device (no key frame annotations)
+        updateStep(4, message: "Generating feedback on-device...", progress: 0.90)
+
+        let speechAnalysis = try await onDeviceService.generateFeedback(
+            transcription: transcription.text,
+            metrics: metrics
+        )
+
+        let gestureAnalysisResult: GestureAnalysisResponse
+        if gestureMetrics.insufficientData {
+            await MainActor.run { failedSteps.insert(3) }
+            gestureAnalysisResult = GestureAnalysisResponse(
+                gestureFeedback: "Gesture analysis was not available for this video. Ensure you are clearly visible in the frame with good lighting.",
+                gestureStrength: "N/A",
+                gestureImprovement: "Ensure your face and body are clearly visible in the video.",
+                isTemplateFallback: true
+            )
+        } else {
+            gestureAnalysisResult = try await onDeviceService.generateGestureFeedback(
+                gestureMetrics: gestureMetrics,
+                transcription: transcription.text
+            )
+        }
+
+        // Strip key frames — annotation not supported offline
+        let finalGestureMetrics = GestureMetrics(
+            facialMetrics: gestureMetrics.facialMetrics,
+            postureMetrics: gestureMetrics.postureMetrics,
+            eyeContactMetrics: gestureMetrics.eyeContactMetrics,
+            overallScore: gestureMetrics.overallScore,
+            facialScore: gestureMetrics.facialScore,
+            postureScore: gestureMetrics.postureScore,
+            eyeContactScore: gestureMetrics.eyeContactScore,
+            keyFrames: [],
+            insufficientData: gestureMetrics.insufficientData
+        )
+
+        // Complete
+        updateStep(4, message: "Analysis complete!", progress: 1.0)
+
+        let session = createSessionFromAnalysis(
+            analysis: speechAnalysis,
+            metrics: metrics,
+            gestureMetrics: finalGestureMetrics,
+            gestureAnalysis: gestureAnalysisResult
+        )
+
+        audioService.cleanupAudioFile(audioURL)
+        let videoFileName = videoURL.lastPathComponent
+        UserDefaults.standard.set(session.id.uuidString, forKey: "session_id_\(videoFileName)")
+
+        await MainActor.run {
+            stopActivityDots()
+            generatedSession = session
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                navigateToFeedback = true
             }
         }
     }
@@ -512,6 +622,7 @@ struct AnalyzingView: View {
             postureScore: gestureMetrics.postureScore,
             eyeContactScore: gestureMetrics.eyeContactScore,
             keyFrames: gestureMetrics.keyFrames,
+            gestureDataInsufficient: gestureMetrics.insufficientData,
             toneStrength: analysis.toneStrength,
             toneImprovement: analysis.toneImprovement,
             pacingStrength: analysis.pacingStrength,

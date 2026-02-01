@@ -6,12 +6,15 @@
 //
 
 import SwiftUI
+import FoundationModels
 
 struct SettingsView: View {
     @EnvironmentObject var userSession: UserSession
     @State private var showResetProgressAlert = false
     @State private var showDeleteRecordingsAlert = false
     @State private var showLogoutAlert = false
+    @State private var showModelUnavailableAlert = false
+    @State private var modelUnavailableMessage = ""
     
     var body: some View {
         ZStack {
@@ -53,6 +56,45 @@ struct SettingsView: View {
                         .padding()
                         .background(Color.bgLight)
                         .cornerRadius(Theme.cornerRadius)
+
+                        // Offline Mode Toggle
+                        VStack(spacing: 0) {
+                            SettingsToggleRow(
+                                icon: "network.slash",
+                                title: "Offline Mode",
+                                isOn: $userSession.enableOfflineMode
+                            )
+                        }
+                        .background(Color.bgLight)
+                        .cornerRadius(Theme.cornerRadius)
+                        .onChange(of: userSession.enableOfflineMode) { _, enabled in
+                            if enabled {
+                                if let message = checkModelAvailability() {
+                                    modelUnavailableMessage = message
+                                    userSession.enableOfflineMode = false
+                                    showModelUnavailableAlert = true
+                                }
+                            }
+                        }
+
+                        if userSession.enableOfflineMode {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(Color.orange)
+                                    Text("Offline Mode Limitations")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(Color.textPrimary)
+                                }
+                                Text("All analysis stays on-device using Apple Intelligence. No data leaves your iPhone. However, analysis quality will be lower compared to cloud-based processing, and key frame annotations are not available in offline mode.")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Color.textMuted)
+                            }
+                            .padding(12)
+                            .background(Color.bgLight)
+                            .cornerRadius(Theme.cornerRadius)
+                        }
 
                         // Analysis Toggles
                         VStack(spacing: 0) {
@@ -204,8 +246,33 @@ struct SettingsView: View {
         } message: {
             Text("Are you sure you want to logout?")
         }
+        .alert("Apple Intelligence Unavailable", isPresented: $showModelUnavailableAlert) {
+            Button("Disable Offline Mode", role: .cancel) { }
+        } message: {
+            Text(modelUnavailableMessage)
+        }
     }
     
+    private func checkModelAvailability() -> String? {
+        if #available(iOS 26.0, *) {
+            let model = SystemLanguageModel.default
+            switch model.availability {
+            case .available:
+                return nil
+            case .unavailable(.deviceNotEligible):
+                return "This device does not support Apple Intelligence. Offline mode requires an iPhone with A17 Pro chip or later."
+            case .unavailable(.appleIntelligenceNotEnabled):
+                return "Apple Intelligence is not enabled. Go to Settings > Apple Intelligence & Siri and turn on Apple Intelligence to use offline mode."
+            case .unavailable(.modelNotReady):
+                return "The on-device AI model is still downloading. Please wait for the download to complete in Settings > Apple Intelligence & Siri, then try again."
+            default:
+                return "Apple Intelligence is not available. Please check Settings > Apple Intelligence & Siri."
+            }
+        } else {
+            return "Offline mode requires iOS 26 or later."
+        }
+    }
+
     private func deleteAllRecordings() {
         guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             return
