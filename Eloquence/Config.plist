@@ -2,13 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Supabase</key>
-    <dict>
-        <key>URL</key>
-        <string>https://cyiyiebldvmbunxkirzy.supabase.co</string>
-        <key>AnonKey</key>
-        <string>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5aXlpZWJsZHZtYnVueGtpcnp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NDI1MTYsImV4cCI6MjA4MDAxODUxNn0.ciSFosPp9aNe5gHMYLbvdYMp7pSTlj9qi6HPtIHOgvA</string>
-    </dict>
     <key>AzureAuth</key>
     <dict>
         <key>BaseURL</key>

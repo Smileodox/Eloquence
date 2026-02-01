@@ -215,7 +215,7 @@ struct MetricDetailView: View {
                 Image(systemName: "sparkles")
                     .foregroundStyle(metricType.color)
 
-                Text("AI Recommendations")
+                Text("AI Insights")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(Color.textPrimary)
             }

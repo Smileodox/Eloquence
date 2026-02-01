@@ -40,10 +40,6 @@ class ConfigurationManager {
         }
     }()
 
-    // Supabase configuration (legacy - kept for compatibility)
-    let supabaseURL: String
-    let supabaseAnonKey: String
-
     // Azure Auth configuration - this is the backend URL for all API calls
     let azureAuthBaseURL: String
 
@@ -53,16 +49,6 @@ class ConfigurationManager {
               let dict = NSDictionary(contentsOfFile: path) else {
             throw ConfigurationError.missingConfigFile
         }
-
-        // MARK: - Supabase Configuration (legacy)
-        guard let supabaseConfig = dict["Supabase"] as? [String: String],
-              let sbURL = supabaseConfig["URL"],
-              let sbKey = supabaseConfig["AnonKey"] else {
-             throw ConfigurationError.missingRequiredKeys(section: "Supabase", keys: ["URL", "AnonKey"])
-        }
-
-        self.supabaseURL = sbURL
-        self.supabaseAnonKey = sbKey
 
         // MARK: - Azure Auth Configuration
         guard let azureAuthConfig = dict["AzureAuth"] as? [String: String],
