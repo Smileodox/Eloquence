@@ -387,7 +387,7 @@ struct BodyLanguageDetailView: View {
                 Image(systemName: "sparkles")
                     .foregroundStyle(Color.info)
 
-                Text("AI Insights")
+                Text("AI Recommendations")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(Color.textPrimary)
             }
@@ -583,3 +583,4 @@ struct BodyLanguageDetailView: View {
         .environmentObject(UserSession())
     }
 }
+

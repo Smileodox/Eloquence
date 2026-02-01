@@ -17,6 +17,7 @@ struct FeedbackView: View {
     @State private var navigateToDashboard = false
     @State private var showNameRecordingAlert = false
     @State private var recordingName = ""
+    @State private var gestureDetailsExpanded = false
     
     var body: some View {
         ZStack {
@@ -196,65 +197,75 @@ struct FeedbackView: View {
     }
 
     private var gestureDetailsDisclosure: some View {
-        DisclosureGroup {
-            VStack(spacing: 12) {
-                if let facialScore = session.facialScore {
-                    SubScoreRow(
-                        icon: "face.smiling",
-                        label: "Facial Expression",
-                        score: facialScore,
-                        color: .info
-                    )
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation {
+                    gestureDetailsExpanded.toggle()
                 }
+            } label: {
+                HStack {
+                    Text("View Gesture Details")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.primary)
 
-                if let postureScore = session.postureScore {
-                    SubScoreRow(
-                        icon: "figure.stand",
-                        label: "Body Posture",
-                        score: postureScore,
-                        color: .info
-                    )
+                    Spacer()
+
+                    Image(systemName: gestureDetailsExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.primary)
                 }
+                .contentShape(Rectangle())
+            }
+            
+            if gestureDetailsExpanded {
+                VStack(spacing: 12) {
+                    if let facialScore = session.facialScore {
+                        SubScoreRow(
+                            icon: "face.smiling",
+                            label: "Facial Expression",
+                            score: facialScore,
+                            color: .info
+                        )
+                    }
 
-                if let eyeContactScore = session.eyeContactScore {
+                    if let postureScore = session.postureScore {
+                        SubScoreRow(
+                            icon: "figure.stand",
+                            label: "Body Posture",
+                            score: postureScore,
+                            color: .info
+                        )
+                    }
+
+                    if let eyeContactScore = session.eyeContactScore {
+                        SubScoreRow(
+                            icon: "eye",
+                            label: "Eye Contact",
+                            score: eyeContactScore,
+                            color: .info
+                        )
+                    }
+
                     SubScoreRow(
-                        icon: "eye",
-                        label: "Eye Contact",
-                        score: eyeContactScore,
-                        color: .info
-                    )
-                }
-
-                SubScoreRow(
-                    icon: "hand.raised",
-                    label: "Hand Gestures",
-                    score: nil,
-                    color: .textMuted,
-                    placeholder: "Coming in Phase 2"
-                )
-
-                if session.eyeContactScore == nil {
-                    SubScoreRow(
-                        icon: "eye",
-                        label: "Eye Contact",
+                        icon: "hand.raised",
+                        label: "Hand Gestures",
                         score: nil,
                         color: .textMuted,
-                        placeholder: "Not detected in this session"
+                        placeholder: "Coming in Phase 2"
                     )
+
+                    if session.eyeContactScore == nil {
+                        SubScoreRow(
+                            icon: "eye",
+                            label: "Eye Contact",
+                            score: nil,
+                            color: .textMuted,
+                            placeholder: "Not detected in this session"
+                        )
+                    }
                 }
-            }
-            .padding(.top, 8)
-        } label: {
-            HStack {
-                Text("View Gesture Details")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color.primary)
-
-                Spacer()
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.primary)
+                .padding(.top, 8)
+                .transition(.opacity)
             }
         }
         .tint(.primary)
@@ -264,7 +275,7 @@ struct FeedbackView: View {
         VStack(alignment: .leading, spacing: Theme.spacing) {
             HStack {
                 Image(systemName: "sparkles")
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color.primary)
 
                 Text("AI Insights")
                     .font(.system(size: 18, weight: .bold))

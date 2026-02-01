@@ -168,6 +168,7 @@ struct ServerInfoCard: View {
                     .foregroundStyle(Color.primary)
                 Text(server.name)
                     .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
                 Spacer()
                 Text(server.country)
                     .font(.system(size: 14))
@@ -222,6 +223,7 @@ struct PrivacyInfoSection: View {
                     .foregroundStyle(Color.success)
                 Text("Privacy")
                     .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
             }
 
             Text("Eye tracking and posture analysis run entirely on your device. Cloud servers are located in the EU and comply with GDPR. Your recordings are only processed for analysis and are not permanently stored on our servers.")

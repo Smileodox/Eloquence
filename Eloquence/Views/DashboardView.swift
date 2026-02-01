@@ -12,6 +12,7 @@ struct DashboardView: View {
     @State private var navigateToRecording = false
     @State private var navigateToProgress = false
     @State private var navigateToSettings = false
+    @State private var navigateToRecordings = false
     
     private var activeProjects: [Project] {
         let now = Date()
@@ -45,6 +46,10 @@ struct DashboardView: View {
                 
                 ScrollView {
                     VStack(spacing: Theme.largeSpacing) {
+                        
+                        NavigationLink(destination: ProgressView(), isActive: $navigateToProgress) { EmptyView() }.hidden()
+                        NavigationLink(destination: RecordingsListView(filterProject: nil), isActive: $navigateToRecordings) { EmptyView() }.hidden()
+                        
                         // Welcome message
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Welcome back,")
@@ -233,7 +238,9 @@ struct DashboardView: View {
                             
                             HStack(spacing: Theme.spacing) {
                                 // View Project Progress
-                                NavigationLink(destination: ProgressView()) {
+                                Button {
+                                    navigateToProgress = true
+                                } label: {
                                     VStack(alignment: .leading, spacing: 12) {
                                         Image(systemName: "chart.line.uptrend.xyaxis")
                                             .font(.system(size: 28))
@@ -258,7 +265,9 @@ struct DashboardView: View {
                                 .buttonStyle(PlainButtonStyle())
                                 
                                 // Recordings
-                                NavigationLink(destination: RecordingsListView(filterProject: nil)) {
+                                Button {
+                                    navigateToRecordings = true
+                                } label: {
                                     VStack(alignment: .leading, spacing: 12) {
                                         Image(systemName: "video.fill")
                                             .font(.system(size: 28))
