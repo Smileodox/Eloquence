@@ -203,7 +203,7 @@ Provide your analysis in JSON format as specified."""
         return await self._chat_completion(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            max_tokens=2000,
+            max_tokens=4000,
             json_response=True,
         )
 
@@ -299,7 +299,7 @@ Provide your gesture analysis in JSON format as specified. Reference specific mo
         return await self._chat_completion(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            max_tokens=2000,
+            max_tokens=4000,
             json_response=True,
         )
 
@@ -472,7 +472,11 @@ Analyze this presentation frame and provide ONE concise coaching comment (20-40 
 
             if json_response:
                 import json
-                return json.loads(content)
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError as e:
+                    logger.error(f"[GPT] Invalid JSON response: {e}")
+                    raise ValueError(f"GPT returned invalid JSON: {str(e)}")
             return {"content": content}
         except httpx.TimeoutException as e:
             logger.error(f"[GPT] Timeout after 60s: {e}")
