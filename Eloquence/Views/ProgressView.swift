@@ -17,6 +17,7 @@ struct ProgressView: View {
     @State private var showDeleteProjectAlert = false
     @State private var showEditProjectSheet = false
     @State private var editingProject: Project?
+    @State private var selectedSession: PracticeSession? = nil
 
     init(initialProject: Project? = nil) {
         self.initialProject = initialProject
@@ -248,7 +249,7 @@ struct ProgressView: View {
                         .font(.system(size: 14))
                         .foregroundStyle(Color.warning)
 
-                    Text("Due: \(formatDate(dueDate))")
+                    Text("Due: \(Self.formatDate(dueDate))")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color.textMuted)
                 }
@@ -270,6 +271,7 @@ struct ProgressView: View {
                 .foregroundStyle(Color.textPrimary)
 
             let sessions = filteredSessions.sorted { $0.date < $1.date }
+            let improvement = improvementPercentage
 
             Chart {
                 ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
@@ -305,6 +307,22 @@ struct ProgressView: View {
                 }
                 .interpolationMethod(.catmullRom)
             }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    Rectangle().fill(Color.clear).contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let location = value.location
+                                if let (index, selected) = indexOfClosestSession(to: location, in: proxy, geo: geo, sessions: sessions) {
+                                    selectedSession = selected
+                                } else {
+                                    selectedSession = nil
+                                }
+                            }
+                            .onEnded { _ in }
+                        )
+                }
+            }
             .frame(height: 180)
             .chartYScale(domain: 0...100)
             .chartYAxis {
@@ -323,6 +341,13 @@ struct ProgressView: View {
                         .foregroundStyle(Color.textMuted)
                 }
             }
+            .overlay(
+                Group {
+                    if let selected = selectedSession {
+                        ChartSessionDetailOverlay(selectedSession: selected, filteredSessions: filteredSessions, userSession: userSession, onClose: { selectedSession = nil })
+                    }
+                }
+            )
 
             // Stats row
             HStack(spacing: Theme.largeSpacing) {
@@ -333,13 +358,14 @@ struct ProgressView: View {
                 )
 
                 if filteredSessions.count >= 2 {
-                    let improvement = improvementPercentage
                     statPill(
                         value: improvement >= 0 ? "+\(improvement)%" : "\(improvement)%",
                         label: "Overall",
                         icon: "chart.line.uptrend.xyaxis",
                         isPositive: improvement >= 0
                     )
+                } else {
+                    EmptyView()
                 }
             }
             .padding(.top, 8)
@@ -396,7 +422,22 @@ struct ProgressView: View {
     // MARK: - Metric Cards Section
 
     private var metricCardsSection: some View {
-        VStack(alignment: .leading, spacing: Theme.spacing) {
+        // Move all logic outside the ViewBuilder:
+        let (toneScore, pacingScore, gesturesScore, toneChange, pacingChange, gesturesChange): (Int, Int, Int, Int, Int, Int)
+        if let selected = selectedSession {
+            (toneScore, pacingScore, gesturesScore, toneChange, pacingChange, gesturesChange) = (selected.toneScore, selected.pacingScore, selected.gesturesScore, 0, 0, 0)
+        } else {
+            (toneScore, pacingScore, gesturesScore, toneChange, pacingChange, gesturesChange) = (
+                userSession.averageToneScore(for: filteredSessions),
+                userSession.averagePacingScore(for: filteredSessions),
+                userSession.averageGesturesScore(for: filteredSessions),
+                userSession.metricScoreChange(for: filteredSessions, metric: .tone),
+                userSession.metricScoreChange(for: filteredSessions, metric: .pacing),
+                userSession.metricScoreChange(for: filteredSessions, metric: .bodyLanguage)
+            )
+        }
+
+        return VStack(alignment: .leading, spacing: Theme.spacing) {
             Text("Detailed Metrics")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color.textPrimary)
@@ -407,8 +448,8 @@ struct ProgressView: View {
                 NavigationLink(destination: MetricDetailView(metricType: .tone, sessions: filteredSessions)) {
                     metricCard(
                         type: .tone,
-                        score: userSession.averageToneScore(for: filteredSessions),
-                        change: userSession.metricScoreChange(for: filteredSessions, metric: .tone)
+                        score: toneScore,
+                        change: toneChange
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -417,8 +458,8 @@ struct ProgressView: View {
                 NavigationLink(destination: MetricDetailView(metricType: .pacing, sessions: filteredSessions)) {
                     metricCard(
                         type: .pacing,
-                        score: userSession.averagePacingScore(for: filteredSessions),
-                        change: userSession.metricScoreChange(for: filteredSessions, metric: .pacing)
+                        score: pacingScore,
+                        change: pacingChange
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -427,8 +468,8 @@ struct ProgressView: View {
                 NavigationLink(destination: BodyLanguageDetailView(sessions: filteredSessions)) {
                     metricCard(
                         type: .bodyLanguage,
-                        score: userSession.averageGesturesScore(for: filteredSessions),
-                        change: userSession.metricScoreChange(for: filteredSessions, metric: .bodyLanguage)
+                        score: gesturesScore,
+                        change: gesturesChange
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -471,7 +512,7 @@ struct ProgressView: View {
                 .frame(height: 8)
 
                 // Change indicator
-                if filteredSessions.count >= 2 {
+                if filteredSessions.count >= 2 && change != 0 {
                     HStack(spacing: 4) {
                         Image(systemName: change >= 0 ? "arrow.up" : "arrow.down")
                             .font(.system(size: 10, weight: .bold))
@@ -611,11 +652,87 @@ struct ProgressView: View {
         return improvement
     }
 
-    private func formatDate(_ date: Date) -> String {
+    static func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         return formatter.string(from: date)
+    }
+
+    private func indexOfClosestSession(to location: CGPoint, in proxy: ChartProxy, geo: GeometryProxy, sessions: [PracticeSession]) -> (Int, PracticeSession)? {
+        let points = sessions.enumerated().compactMap { (index, session) -> (CGFloat, PracticeSession)? in
+            let xValue = Double(index + 1)
+            if let xPos = proxy.position(forX: xValue) {
+                return (xPos, session)
+            }
+            return nil
+        }
+        let tapX = location.x
+        let closest = points.min(by: { abs($0.0 - tapX) < abs($1.0 - tapX) })
+        if let closest = closest, let idx = points.firstIndex(where: { $0.0 == closest.0 }) {
+            return (idx, closest.1)
+        }
+        return nil
+    }
+}
+
+// MARK: - Chart Session Detail Overlay
+
+struct ChartSessionDetailOverlay: View {
+    let selectedSession: PracticeSession
+    let filteredSessions: [PracticeSession]
+    let userSession: UserSession
+    let onClose: () -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let sortedSessions = filteredSessions.sorted(by: { $0.date < $1.date })
+            if let index = sortedSessions.firstIndex(where: { $0.id == selectedSession.id }) {
+                let xRatio = CGFloat(index) / CGFloat(max(sortedSessions.count - 1, 1))
+                let xPos = geo.size.width * xRatio
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Spacer()
+
+                        Button(action: onClose) {
+                            ZStack {
+                                Circle().fill(Color.bgLight)
+                                Image(systemName: "xmark")
+                                    .foregroundStyle(Color.textMuted)
+                                    .font(.system(size: 14, weight: .bold))
+                            }
+                            .frame(width: 26, height: 26)
+                        }
+                    }
+
+                    Text(ProgressView.formatDate(selectedSession.date))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.primary)
+
+                    if let type = selectedSession.recordingType, !type.isEmpty {
+                        Text("Type: \(type)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let projectId = selectedSession.projectId, let projectName = userSession.projects.first(where: { $0.id == projectId })?.name {
+                        Text("Project: \(projectName)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(8)
+                .background(Color.bgLight)
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10).stroke(Color.border, lineWidth: 1)
+                )
+                .frame(width: 150)
+                .position(x: min(max(xPos, 75), geo.size.width - 75), y: 30)
+            }
+        }
+        .frame(height: 60)
     }
 }
 
@@ -708,9 +825,54 @@ struct MetricRow: View {
     }
 }
 
+struct SessionDetailCard: View {
+    let session: PracticeSession
+    @EnvironmentObject var userSession: UserSession
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Session Details")
+                .font(.headline)
+                .foregroundStyle(Color.textPrimary)
+            Text("Date: \(Self.formatDate(session.date))")
+                .font(.subheadline)
+                .foregroundStyle(Color.textPrimary)
+            if let recordingType = session.recordingType {
+                Text("Recording Type: \(recordingType)")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.textPrimary)
+            }
+            if let projectId = session.projectId, let projectName = projectName(for: projectId) {
+                Text("Project: \(projectName)")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.textPrimary)
+            }
+        }
+        .padding(12)
+        .background(Color.bgLight)
+        .cornerRadius(Theme.cornerRadius)
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cornerRadius).stroke(Color.border, lineWidth: 1)
+        )
+        .padding(.top, 8)
+    }
+
+    private func projectName(for projectId: UUID) -> String? {
+        userSession.projects.first(where: { $0.id == projectId })?.name
+    }
+
+    static func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+}
+
 #Preview {
     NavigationStack {
         ProgressView()
             .environmentObject(UserSession())
     }
 }
+
