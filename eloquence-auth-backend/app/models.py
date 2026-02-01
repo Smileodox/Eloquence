@@ -58,6 +58,7 @@ class SpeechAnalysisRequest(BaseModel):
     pauseCount: int
     sentenceCount: int
     averageSentenceLength: float
+    voiceStyle: Optional[str] = "Neutral"  # Neutral, Motivational, Analytical
 
 
 class SpeechAnalysisResponse(BaseModel):
@@ -85,6 +86,7 @@ class GestureAnalysisRequest(BaseModel):
     cameraFocusPercentage: float
     readingNotesPercentage: float
     gazeStabilityScore: float
+    voiceStyle: Optional[str] = "Neutral"  # Neutral, Motivational, Analytical
 
 
 class GestureAnalysisResponse(BaseModel):
@@ -99,6 +101,7 @@ class KeyFrameAnnotationRequest(BaseModel):
     frameType: str  # bestFacial, bestOverall, improveFacial, etc.
     transcriptionExcerpt: str
     timestamp: float
+    voiceStyle: Optional[str] = "Neutral"  # Neutral, Motivational, Analytical
 
 
 class KeyFrameAnnotationResponse(BaseModel):

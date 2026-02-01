@@ -158,6 +158,7 @@ async def analyze_speech(
             pause_count=request.pauseCount,
             sentence_count=request.sentenceCount,
             average_sentence_length=request.averageSentenceLength,
+            voice_style=request.voiceStyle or "Neutral",
         )
 
         return SpeechAnalysisResponse(
@@ -208,6 +209,7 @@ async def analyze_gesture(
             camera_focus_percentage=request.cameraFocusPercentage,
             reading_notes_percentage=request.readingNotesPercentage,
             gaze_stability_score=request.gazeStabilityScore,
+            voice_style=request.voiceStyle or "Neutral",
         )
 
         return GestureAnalysisResponse(
@@ -252,6 +254,7 @@ async def annotate_key_frame(
             frame_type=request.frameType,
             transcription_excerpt=request.transcriptionExcerpt,
             timestamp=request.timestamp,
+            voice_style=request.voiceStyle or "Neutral",
         )
 
         return KeyFrameAnnotationResponse(annotation=annotation)

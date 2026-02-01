@@ -309,8 +309,8 @@ struct AnalyzingView: View {
         // Step 5: Generate ALL feedback in parallel
         updateStep(4, message: "Generating personalized feedback...", progress: 0.90)
 
-        async let analysisTask = retryHelper.withRetry {
-            try await azureService.generateFeedback(transcription: transcription.text, metrics: metrics)
+        async let analysisTask = retryHelper.withRetry { [voiceStyle = userSession.aiVoiceStyle] in
+            try await azureService.generateFeedback(transcription: transcription.text, metrics: metrics, voiceStyle: voiceStyle)
         }
 
         let gestureAnalysisResult: GestureAnalysisResponse
@@ -326,12 +326,13 @@ struct AnalyzingView: View {
             )
             enhancedGestureMetrics = gestureMetrics
         } else {
-            async let gestureAnalysisTask: GestureAnalysisResponse = retryHelper.withRetry {
-                try await azureService.generateGestureFeedback(gestureMetrics: gestureMetrics, transcription: transcription.text)
+            async let gestureAnalysisTask: GestureAnalysisResponse = retryHelper.withRetry { [voiceStyle = userSession.aiVoiceStyle] in
+                try await azureService.generateGestureFeedback(gestureMetrics: gestureMetrics, transcription: transcription.text, voiceStyle: voiceStyle)
             }
             async let enhancedMetricsTask = enhanceKeyFramesWithAI(
                 gestureMetrics: gestureMetrics,
-                transcription: transcription.text
+                transcription: transcription.text,
+                voiceStyle: userSession.aiVoiceStyle
             )
             (gestureAnalysisResult, enhancedGestureMetrics) = try await (gestureAnalysisTask, enhancedMetricsTask)
         }
@@ -398,7 +399,8 @@ struct AnalyzingView: View {
 
         let speechAnalysis = try await onDeviceService.generateFeedback(
             transcription: transcription.text,
-            metrics: metrics
+            metrics: metrics,
+            voiceStyle: userSession.aiVoiceStyle
         )
 
         let gestureAnalysisResult: GestureAnalysisResponse
@@ -413,7 +415,8 @@ struct AnalyzingView: View {
         } else {
             gestureAnalysisResult = try await onDeviceService.generateGestureFeedback(
                 gestureMetrics: gestureMetrics,
-                transcription: transcription.text
+                transcription: transcription.text,
+                voiceStyle: userSession.aiVoiceStyle
             )
         }
 
@@ -472,7 +475,8 @@ struct AnalyzingView: View {
     /// Enhances key frames with AI-generated annotations using GPT-4o vision
     private func enhanceKeyFramesWithAI(
         gestureMetrics: GestureMetrics,
-        transcription: String
+        transcription: String,
+        voiceStyle: AIVoiceStyle = .neutral
     ) async throws -> GestureMetrics {
         print("🎨 [AI Enhancement] Generating AI annotations for \(gestureMetrics.keyFrames.count) key frames...")
 
@@ -500,7 +504,8 @@ struct AnalyzingView: View {
                             imageData: keyFrame.image,
                             type: keyFrame.type,
                             transcriptionExcerpt: contextExcerpt,
-                            timestamp: keyFrame.timestamp
+                            timestamp: keyFrame.timestamp,
+                            voiceStyle: voiceStyle
                         )
 
                         // Create enhanced frame with AI annotation
