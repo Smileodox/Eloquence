@@ -31,6 +31,9 @@ class UserSession: ObservableObject {
     @Published var enablePostureAnalysis: Bool = true {
         didSet { UserDefaults.standard.set(enablePostureAnalysis, forKey: enablePostureKey) }
     }
+    @Published var enableOfflineMode: Bool = false {
+        didSet { UserDefaults.standard.set(enableOfflineMode, forKey: enableOfflineModeKey) }
+    }
     
     // Session tracking
     @Published var sessions: [PracticeSession] = [] {
@@ -65,6 +68,7 @@ class UserSession: ObservableObject {
     private let enableFacialKey = "enableFacialAnalysis"
     private let enablePostureKey = "enablePostureAnalysis"
     private let aiVoiceStyleKey = "aiVoiceStyle"
+    private let enableOfflineModeKey = "enableOfflineMode"
     
     init() {
         loadSessions()
@@ -179,6 +183,9 @@ class UserSession: ObservableObject {
         }
         if UserDefaults.standard.object(forKey: enablePostureKey) != nil {
             enablePostureAnalysis = UserDefaults.standard.bool(forKey: enablePostureKey)
+        }
+        if UserDefaults.standard.object(forKey: enableOfflineModeKey) != nil {
+            enableOfflineMode = UserDefaults.standard.bool(forKey: enableOfflineModeKey)
         }
         if let styleString = UserDefaults.standard.string(forKey: aiVoiceStyleKey),
            let style = AIVoiceStyle(rawValue: styleString) {
@@ -503,6 +510,7 @@ struct PracticeSession: Identifiable, Codable {
     var postureScore: Int?
     var eyeContactScore: Int?
     var keyFrames: [KeyFrame]?
+    var gestureDataInsufficient: Bool?
 
     // Tone & Pacing AI feedback
     var toneStrength: String?
@@ -514,7 +522,7 @@ struct PracticeSession: Identifiable, Codable {
         (toneScore + pacingScore + gesturesScore) / 3
     }
 
-    init(id: UUID = UUID(), date: Date = Date(), toneScore: Int, pacingScore: Int, gesturesScore: Int, feedback: String = "", recordingType: String? = nil, projectId: UUID? = nil, gestureStrength: String? = nil, gestureImprovement: String? = nil, facialScore: Int? = nil, postureScore: Int? = nil, eyeContactScore: Int? = nil, keyFrames: [KeyFrame]? = nil, toneStrength: String? = nil, toneImprovement: String? = nil, pacingStrength: String? = nil, pacingImprovement: String? = nil) {
+    init(id: UUID = UUID(), date: Date = Date(), toneScore: Int, pacingScore: Int, gesturesScore: Int, feedback: String = "", recordingType: String? = nil, projectId: UUID? = nil, gestureStrength: String? = nil, gestureImprovement: String? = nil, facialScore: Int? = nil, postureScore: Int? = nil, eyeContactScore: Int? = nil, keyFrames: [KeyFrame]? = nil, gestureDataInsufficient: Bool? = nil, toneStrength: String? = nil, toneImprovement: String? = nil, pacingStrength: String? = nil, pacingImprovement: String? = nil) {
         self.id = id
         self.date = date
         self.toneScore = toneScore
@@ -529,6 +537,7 @@ struct PracticeSession: Identifiable, Codable {
         self.postureScore = postureScore
         self.eyeContactScore = eyeContactScore
         self.keyFrames = keyFrames
+        self.gestureDataInsufficient = gestureDataInsufficient
         self.toneStrength = toneStrength
         self.toneImprovement = toneImprovement
         self.pacingStrength = pacingStrength

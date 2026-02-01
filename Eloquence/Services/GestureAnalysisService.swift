@@ -71,9 +71,19 @@ class GestureAnalysisService {
             throw GestureAnalysisError.frameExtractionError
         }
 
-        guard !facialFrames.isEmpty || !postureFrames.isEmpty else {
-            print("[Gesture] No gesture data detected")
-            throw GestureAnalysisError.insufficientData
+        if facialFrames.isEmpty && postureFrames.isEmpty {
+            print("[Gesture] No gesture data detected - returning empty metrics")
+            return GestureMetrics(
+                facialMetrics: createEmptyFacialMetrics(totalFrames: totalProcessedFrames),
+                postureMetrics: createEmptyPostureMetrics(totalFrames: totalProcessedFrames),
+                eyeContactMetrics: nil,
+                overallScore: 0,
+                facialScore: 0,
+                postureScore: 0,
+                eyeContactScore: nil,
+                keyFrames: [],
+                insufficientData: true
+            )
         }
 
         let facialMetrics = calculateFacialMetrics(frames: facialFrames, totalFrames: totalProcessedFrames)
