@@ -41,6 +41,7 @@ struct SettingsView: View {
                                 .frame(width: 28)
                             Text("AI Voice Style")
                                 .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(Color.textPrimary)
                             Spacer()
                             Picker("", selection: $userSession.aiVoiceStyle) {
                                 ForEach(AIVoiceStyle.allCases, id: \.self) { style in
@@ -85,6 +86,7 @@ struct SettingsView: View {
                                     .frame(width: 28)
                                 Text("Data Processing")
                                     .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(Color.textPrimary)
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 14))
@@ -236,6 +238,7 @@ struct SettingsToggleRow: View {
                 .frame(width: 28)
             Text(title)
                 .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color.textPrimary)
             Spacer()
             Toggle("", isOn: $isOn)
                 .tint(.primary)
@@ -250,3 +253,4 @@ struct SettingsToggleRow: View {
             .environmentObject(UserSession())
     }
 }
+

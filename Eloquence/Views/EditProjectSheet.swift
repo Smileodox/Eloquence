@@ -39,6 +39,7 @@ struct EditProjectSheet: View {
                             .foregroundStyle(Color.textPrimary)
                         
                         TextField("Enter project name", text: $projectName)
+                            .foregroundStyle(Color.textPrimary)
                             .textFieldStyle(.plain)
                             .padding(Theme.spacing)
                             .background(Color.bgLight)
@@ -71,6 +72,7 @@ struct EditProjectSheet: View {
                             .padding(Theme.spacing)
                             .background(Color.bgLight)
                             .cornerRadius(Theme.cornerRadius)
+                            .foregroundStyle(Color.textPrimary)
                         }
                     }
                     .padding(.horizontal, Theme.largeSpacing)
