@@ -16,9 +16,6 @@ struct RecordingSetupView: View {
     @State private var newProjectDueDate = Date()
     @State private var hasDueDate = false
     @State private var navigateToRecording = false
-    @State private var navigateToAnalyzing = false
-    @State private var selectedVideoURL: URL?
-    @State private var showVideoPicker = false
     
     var body: some View {
         ZStack {
@@ -191,34 +188,6 @@ struct RecordingSetupView: View {
                         .cornerRadius(Theme.cornerRadius)
                     }
                     .disabled(userSession.projects.isEmpty)
-
-                    Button(action: {
-                        guard !userSession.projects.isEmpty else {
-                            showNewProjectAlert = true
-                            return
-                        }
-                        if selectedProject == nil {
-                            selectedProject = userSession.projects.first
-                        }
-                        showVideoPicker = true
-                    }) {
-                        HStack {
-                            Image(systemName: "photo.on.rectangle")
-                                .font(.system(size: 20))
-                            Text("Choose from Library")
-                                .font(.system(size: 18, weight: .semibold))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: Theme.buttonHeight)
-                        .foregroundStyle(userSession.projects.isEmpty ? Color.textMuted.opacity(0.5) : Color.primary)
-                        .background(userSession.projects.isEmpty ? Color.bgLight.opacity(0.5) : Color.bgLight)
-                        .cornerRadius(Theme.cornerRadius)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.cornerRadius)
-                                .stroke(userSession.projects.isEmpty ? Color.border.opacity(0.5) : Color.primary, lineWidth: 1)
-                        )
-                    }
-                    .disabled(userSession.projects.isEmpty)
                 }
                 .padding(.horizontal, Theme.largeSpacing)
                 .padding(.bottom, Theme.largeSpacing)
@@ -255,15 +224,6 @@ struct RecordingSetupView: View {
         }
         .navigationDestination(isPresented: $navigateToRecording) {
             RecordingView(recordingType: selectedType, project: selectedProject)
-        }
-        .navigationDestination(isPresented: $navigateToAnalyzing) {
-            AnalyzingView(videoURL: selectedVideoURL, recordingType: selectedType, project: selectedProject)
-        }
-        .sheet(isPresented: $showVideoPicker) {
-            VideoPicker { url in
-                selectedVideoURL = url
-                navigateToAnalyzing = true
-            }
         }
     }
 }
