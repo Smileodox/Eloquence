@@ -67,6 +67,36 @@ struct OnDeviceGestureAnalysis {
 @available(iOS 26.0, *)
 class OnDeviceAIService {
 
+    // MARK: - Voice Style Instructions
+
+    private func voiceStyleInstruction(for style: AIVoiceStyle) -> String {
+        switch style {
+        case .motivational:
+            return """
+            Coaching Style: MOTIVATIONAL
+            - Use encouraging, energetic language
+            - Celebrate strengths enthusiastically
+            - Frame improvements as exciting opportunities
+            - Use phrases like "Great job!", "You're on the right track!", "Keep pushing!"
+            """
+        case .analytical:
+            return """
+            Coaching Style: ANALYTICAL
+            - Use precise, data-driven language
+            - Focus on metrics and measurable observations
+            - Provide structured, logical feedback
+            - Avoid emotional language, be objective and clinical
+            """
+        case .neutral:
+            return """
+            Coaching Style: NEUTRAL
+            - Use balanced, professional language
+            - Mix encouragement with constructive criticism
+            - Be direct but supportive
+            """
+        }
+    }
+
     // MARK: - Transcription (Speech Framework)
 
     func transcribeAudio(_ audioURL: URL) async throws -> WhisperTranscription {
@@ -121,10 +151,14 @@ class OnDeviceAIService {
 
     // MARK: - Speech Feedback (Foundation Models)
 
-    func generateFeedback(transcription: String, metrics: SpeechMetrics) async throws -> GPTAnalysisResponse {
+    func generateFeedback(transcription: String, metrics: SpeechMetrics, voiceStyle: AIVoiceStyle = .neutral) async throws -> GPTAnalysisResponse {
+        let styleInstruction = voiceStyleInstruction(for: voiceStyle)
+
         let session = LanguageModelSession {
             """
             You are an expert presentation coach analyzing a practice presentation. Provide detailed, personalized coaching feedback that references specific moments from the transcription.
+
+            \(styleInstruction)
 
             Scoring Guidelines:
             - Tone Score (0-100): Overall vocal quality, appropriateness for context
@@ -186,7 +220,8 @@ class OnDeviceAIService {
 
     func generateGestureFeedback(
         gestureMetrics: GestureMetrics,
-        transcription: String
+        transcription: String,
+        voiceStyle: AIVoiceStyle = .neutral
     ) async throws -> GestureAnalysisResponse {
         let hasFacial = gestureMetrics.facialMetrics.smileFrequency > 0 ||
             gestureMetrics.facialMetrics.expressionVariety > 0 ||
@@ -201,6 +236,8 @@ class OnDeviceAIService {
         if hasFacial { focusAreas.append("facial expressions") }
         if hasPosture { focusAreas.append("body posture") }
         if hasEyeContact { focusAreas.append("eye contact") }
+
+        let styleInstruction = voiceStyleInstruction(for: voiceStyle)
 
         var metricsText = ""
         if hasFacial {
@@ -235,6 +272,8 @@ class OnDeviceAIService {
         let session = LanguageModelSession {
             """
             You are an expert presentation coach analyzing body language. Evaluate the speaker's \(focusAreas.joined(separator: ", ")) and provide detailed coaching feedback. Only comment on metrics that were detected. Connect observations to the presentation content.
+
+            \(styleInstruction)
             """
         }
 

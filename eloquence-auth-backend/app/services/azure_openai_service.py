@@ -15,6 +15,32 @@ logging.basicConfig(level=logging.INFO)
 class AzureOpenAIService:
     """Service for Azure OpenAI API interactions (Whisper + GPT)."""
 
+    def _get_voice_style_instruction(self, voice_style: str) -> str:
+        """Get coaching style instruction based on voice style setting."""
+        if voice_style == "Motivational":
+            return """
+Coaching Style: MOTIVATIONAL
+- Use encouraging, energetic language
+- Celebrate strengths enthusiastically
+- Frame improvements as exciting opportunities
+- Use phrases like "Great job!", "You're on the right track!", "Keep pushing!"
+"""
+        elif voice_style == "Analytical":
+            return """
+Coaching Style: ANALYTICAL
+- Use precise, data-driven language
+- Focus on metrics and measurable observations
+- Provide structured, logical feedback
+- Avoid emotional language, be objective and clinical
+"""
+        else:  # Neutral
+            return """
+Coaching Style: NEUTRAL
+- Use balanced, professional language
+- Mix encouragement with constructive criticism
+- Be direct but supportive
+"""
+
     def __init__(self):
         # Whisper config (separate resource)
         self.whisper_endpoint = settings.azure_whisper_endpoint.rstrip("/")
@@ -108,6 +134,7 @@ class AzureOpenAIService:
         pause_count: int,
         sentence_count: int,
         average_sentence_length: float,
+        voice_style: str = "Neutral",
     ) -> dict:
         """
         Generate speech feedback using GPT.
@@ -116,7 +143,11 @@ class AzureOpenAIService:
             dict with toneScore, confidenceScore, enthusiasmScore, clarityScore,
             feedback, keyStrengths, areasToImprove
         """
-        system_prompt = """You are an expert presentation coach analyzing a practice presentation. Provide detailed, personalized coaching feedback that references specific moments from the transcription.
+        voice_style_instruction = self._get_voice_style_instruction(voice_style)
+
+        system_prompt = f"""You are an expert presentation coach analyzing a practice presentation. Provide detailed, personalized coaching feedback that references specific moments from the transcription.
+
+{voice_style_instruction}
 
 Scoring Guidelines:
 - Tone Score (0-100): Overall vocal quality, appropriateness for context
@@ -140,7 +171,7 @@ Example of excellent feedback:
 "Your opening about climate change showed strong conviction, especially when you emphasized the 2050 deadline at the start. Your pace was ideal (145 WPM) - fast enough to show energy but not rushed. The transition where you said 'but here's what we can do' was perfectly timed and confident. Consider varying your vocal tone more when transitioning between hard statistics and human impact stories to create more emotional contrast and keep your audience engaged. Your conclusion would also benefit from a slight pause before the final call-to-action to let the weight settle."
 
 Respond ONLY with valid JSON matching this exact structure (no additional text):
-{
+{{
   "toneScore": <number 0-100>,
   "confidenceScore": <number 0-100>,
   "enthusiasmScore": <number 0-100>,
@@ -152,7 +183,7 @@ Respond ONLY with valid JSON matching this exact structure (no additional text):
   "toneImprovement": "<specific actionable improvement for vocal tone>",
   "pacingStrength": "<specific strength about pacing/rhythm, reference the WPM if relevant>",
   "pacingImprovement": "<specific actionable improvement for pacing>"
-}"""
+}}"""
 
         user_prompt = f"""Please analyze this presentation:
 
@@ -188,6 +219,7 @@ Provide your analysis in JSON format as specified."""
         camera_focus_percentage: float,
         reading_notes_percentage: float,
         gaze_stability_score: float,
+        voice_style: str = "Neutral",
     ) -> dict:
         """
         Generate gesture feedback using GPT.
@@ -208,7 +240,11 @@ Provide your analysis in JSON format as specified."""
         if has_eye_contact:
             focus_areas.append("eye contact (camera focus, gaze stability)")
 
+        voice_style_instruction = self._get_voice_style_instruction(voice_style)
+
         system_prompt = f"""You are an expert presentation coach analyzing body language and non-verbal communication. Based on the gesture metrics and presentation content provided, evaluate the speaker's {", ".join(focus_areas)} and provide detailed, contextual coaching feedback.
+
+{voice_style_instruction}
 
 IMPORTANT: Only provide feedback about the metrics that were detected. Do not mention facial expressions if no facial data is available, do not mention posture if no posture data is available, and do not mention eye contact if no eye contact data is available.
 
@@ -273,6 +309,7 @@ Provide your gesture analysis in JSON format as specified. Reference specific mo
         frame_type: str,
         transcription_excerpt: str,
         timestamp: float,
+        voice_style: str = "Neutral",
     ) -> str:
         """
         Generate key frame annotation using GPT Vision.
@@ -282,11 +319,16 @@ Provide your gesture analysis in JSON format as specified. Reference specific mo
             frame_type: Type of key frame (bestFacial, bestOverall, improveFacial, etc.)
             transcription_excerpt: Transcription context around this timestamp
             timestamp: Timestamp in seconds
+            voice_style: Coaching style (Neutral, Motivational, Analytical)
 
         Returns:
             Annotation text (20-40 words)
         """
-        system_prompt = """You are an expert presentation coach analyzing a specific moment from a presentation. Based on the frame image and transcription context, provide one concise, specific coaching comment (20-40 words).
+        voice_style_instruction = self._get_voice_style_instruction(voice_style)
+
+        system_prompt = f"""You are an expert presentation coach analyzing a specific moment from a presentation. Based on the frame image and transcription context, provide one concise, specific coaching comment (20-40 words).
+
+{voice_style_instruction}
 
 Guidelines:
 - Adapt tone to presentation formality (academic = professional, casual = friendly)
@@ -395,8 +437,8 @@ Analyze this presentation frame and provide ONE concise coaching comment (20-40 
             "temperature": 1.0,
         }
 
-        if json_response:
-            request_body["response_format"] = {"type": "json_object"}
+        # NOTE: response_format: json_object removed - GPT-5 returns empty responses with it.
+        # JSON output is already enforced via "Respond ONLY with valid JSON" in prompts.
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -419,6 +461,13 @@ Analyze this presentation frame and provide ONE concise coaching comment (20-40 
 
             # Parse the content from the response
             content = data["choices"][0]["message"]["content"]
+
+            # Handle empty responses (safety net)
+            if not content:
+                finish_reason = data["choices"][0].get("finish_reason", "unknown")
+                logger.error(f"[GPT] Empty response received (finish_reason: {finish_reason})")
+                raise ValueError(f"GPT returned empty response (finish_reason: {finish_reason})")
+
             logger.info(f"[GPT] Success - response {len(content)} chars")
 
             if json_response:

@@ -103,7 +103,7 @@ class AzureOpenAIService {
 
     // MARK: - Speech Feedback (GPT)
 
-    func generateFeedback(transcription: String, metrics: SpeechMetrics) async throws -> GPTAnalysisResponse {
+    func generateFeedback(transcription: String, metrics: SpeechMetrics, voiceStyle: AIVoiceStyle = .neutral) async throws -> GPTAnalysisResponse {
         let token = try getAuthToken()
 
         let requestBody: [String: Any] = [
@@ -113,7 +113,8 @@ class AzureOpenAIService {
             "wordsPerMinute": metrics.wordsPerMinute,
             "pauseCount": metrics.pauseCount,
             "sentenceCount": metrics.sentenceCount,
-            "averageSentenceLength": metrics.averageSentenceLength
+            "averageSentenceLength": metrics.averageSentenceLength,
+            "voiceStyle": voiceStyle.rawValue
         ]
 
         let requestData = try JSONSerialization.data(withJSONObject: requestBody)
@@ -219,7 +220,8 @@ class AzureOpenAIService {
 
     func generateGestureFeedback(
         gestureMetrics: GestureMetrics,
-        transcription: String
+        transcription: String,
+        voiceStyle: AIVoiceStyle = .neutral
     ) async throws -> GestureAnalysisResponse {
         let token = try getAuthToken()
 
@@ -233,7 +235,8 @@ class AzureOpenAIService {
             "stabilityScore": gestureMetrics.postureMetrics.stabilityScore,
             "cameraFocusPercentage": gestureMetrics.eyeContactMetrics?.cameraFocusPercentage ?? 0,
             "readingNotesPercentage": gestureMetrics.eyeContactMetrics?.readingNotesPercentage ?? 0,
-            "gazeStabilityScore": gestureMetrics.eyeContactMetrics?.gazeStability ?? 0
+            "gazeStabilityScore": gestureMetrics.eyeContactMetrics?.gazeStability ?? 0,
+            "voiceStyle": voiceStyle.rawValue
         ]
 
         let requestData = try JSONSerialization.data(withJSONObject: requestBody)
@@ -384,7 +387,8 @@ class AzureOpenAIService {
         imageData: Data,
         type: KeyFrameType,
         transcriptionExcerpt: String,
-        timestamp: Double
+        timestamp: Double,
+        voiceStyle: AIVoiceStyle = .neutral
     ) async throws -> String {
         print("[Annotation] Generating for \(type.rawValue) at \(String(format: "%.1f", timestamp))s")
 
@@ -395,7 +399,8 @@ class AzureOpenAIService {
             "imageBase64": base64Image,
             "frameType": type.rawValue,
             "transcriptionExcerpt": transcriptionExcerpt,
-            "timestamp": timestamp
+            "timestamp": timestamp,
+            "voiceStyle": voiceStyle.rawValue
         ]
 
         let requestData = try JSONSerialization.data(withJSONObject: requestBody)
